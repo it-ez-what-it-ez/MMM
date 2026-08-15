@@ -1,0 +1,43 @@
+export type Role = "OWNER" | "ADMIN" | "MARKETER" | "REVIEWER" | "VIEWER";
+export type User = { id: string; name: string; email: string; initials: string; role: Role };
+export type Workspace = { id: string; name: string; slug: string; timezone: string; currency: string; approvalMode: boolean };
+export type BrandProfile = { id: string; name: string; website: string; description: string; valueProposition: string; audiences: string[]; voice: { traits: string[]; tone: string; readingLevel: string; emoji: string; use: string[]; avoid: string[] }; colors: string[]; prohibitedClaims: string[]; updatedAt: string };
+export type IntegrationDefinition = { id: string; name: string; slug: string; description: string; category: string; direction: "SOURCE" | "DESTINATION" | "BOTH"; authType: "OAUTH" | "API_KEY" | "SERVICE_ACCOUNT" | "CONNECTION_STRING"; capabilities: string[]; status: "AVAILABLE" | "BETA" | "COMING_SOON"; iconKey: string };
+export type Connection = { id: string; definitionId: string; accountName: string; state: string; capabilities: string[]; lastActivity: string; lastError?: string; successRate: number };
+export type Campaign = { id: string; title: string; summary: string; objective: string; audience: string; offer?: string; startDate: string; endDate: string; state: string; channels: string[]; plan: { topics: string[]; successMetrics: string[]; risks: string[]; assumptions: string[] }; ownerId: string; progress: number; createdAt: string };
+export type ContentItem = { id: string; campaignId: string; channel: string; type: string; title: string; body: string; state: string; scheduledAt?: string; version: number; externalId?: string; metrics: { impressions: number; clicks: number; conversions: number }; updatedAt: string };
+export type Approval = { id: string; contentId: string; state: string; submitterId: string; reviewerId?: string; comment?: string; createdAt: string; decidedAt?: string };
+export type Audience = { id: string; name: string; description: string; rules: Array<{ field: string; operator: string; value: string }>; size: number; excluded: number; destinations: string[]; updatedAt: string };
+export type SyncDefinition = { id: string; name: string; source: string; destination: string; operation: string; schedule: string; state: string; consent: string[] };
+export type SyncRun = { id: string; syncId: string; state: string; queried: number; accepted: number; rejected: number; duration: string; error?: string; startedAt: string };
+export type PaidAd = { id: string; name: string; platform: string; objective: string; state: string; budget: number; spend: number; results: number; dateRange: string; creative: Array<{ headline: string; body: string; cta: string }>; externalId: string };
+export type Insight = { id: string; title: string; evidence: string; confidence: number; expectedEffect: string; action: string; kind: string };
+export type Metric = { id: string; date: string; impressions: number; engagement: number; clicks: number; leads: number; spend: number; revenue: number };
+export type AuditEvent = { id: string; actorId: string; action: string; entityType: string; entityId: string; detail: string; createdAt: string };
+export type MediaAsset = { id: string; name: string; kind: string; tags: string[]; approvedForAi: boolean; createdAt: string };
+export type SourceMaterial = { id: string; name: string; kind: string; sourceUrl?: string; extractedText: string; createdAt: string };
+export type LearningPreference = { id: string; label: string; value: string; evidenceCount: number; explicit: boolean };
+
+export type AppState = {
+  workspace: Workspace;
+  currentUser: User;
+  users: User[];
+  brand: BrandProfile;
+  definitions: IntegrationDefinition[];
+  connections: Connection[];
+  campaigns: Campaign[];
+  content: ContentItem[];
+  approvals: Approval[];
+  audiences: Audience[];
+  syncs: SyncDefinition[];
+  syncRuns: SyncRun[];
+  paidAds: PaidAd[];
+  insights: Insight[];
+  metrics: Metric[];
+  audits: AuditEvent[];
+  media: MediaAsset[];
+  sources: SourceMaterial[];
+  learning: LearningPreference[];
+};
+
+export type ActionResult<T = unknown> = { ok: true; data: T; auditEventId?: string } | { ok: false; error: string; fields?: Record<string, string> };
