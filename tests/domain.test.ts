@@ -17,6 +17,12 @@ import {
   stableExternalId,
 } from "@/lib/domain";
 import type { IntegrationDefinition } from "@/lib/types";
+import {
+  campaignTemplateSchema,
+  instantiateCampaignTemplate,
+  renderTemplateString,
+  seededCampaignTemplates,
+} from "@/lib/campaign-templates";
 
 const definitions: IntegrationDefinition[] = [
   {
@@ -159,5 +165,50 @@ describe("GrowthOS domain rules", () => {
         AI_PROVIDER_BASE_URL: "https://ai.example.test/generate",
       }),
     ).toBeInstanceOf(RemoteAIProvider);
+  });
+  it("ships valid campaign templates with unique slugs and complete bundles", () => {
+    expect(
+      seededCampaignTemplates.every(
+        (item) => campaignTemplateSchema.safeParse(item).success,
+      ),
+    ).toBe(true);
+    expect(new Set(seededCampaignTemplates.map((item) => item.slug)).size).toBe(
+      seededCampaignTemplates.length,
+    );
+    expect(
+      seededCampaignTemplates.every((item) => item.assets.length >= 7),
+    ).toBe(true);
+  });
+  it("renders template variables without changing unknown placeholders", () => {
+    expect(
+      renderTemplateString(
+        "Save {{discount}} with {{brandName}} and {{unknown}}",
+        { discount: "30%", brandName: "Northstar" },
+      ),
+    ).toBe("Save 30% with Northstar and {{unknown}}");
+  });
+  it("instantiates a scheduled multi-channel BFCM campaign", () => {
+    const template = seededCampaignTemplates.find(
+      (item) => item.id === "template-bfcm",
+    )!;
+    const instance = instantiateCampaignTemplate(template, {
+      brandName: "Northstar Analytics",
+      startDate: "2026-11-02",
+      variables: {
+        discount: "35% off",
+        offerName: "Northstar Annual",
+        deadline: "Cyber Monday at midnight",
+        primaryCta: "Unlock annual access",
+      },
+    });
+    expect(instance.assets).toHaveLength(11);
+    expect(instance.assets[0]).toMatchObject({
+      channel: "Email",
+      scheduledAt: "2026-11-02T09:00:00.000Z",
+    });
+    expect(instance.assets.some((item) => item.channel === "Google Ads")).toBe(
+      true,
+    );
+    expect(JSON.stringify(instance)).not.toContain("{{discount}}");
   });
 });

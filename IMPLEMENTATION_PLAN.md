@@ -16,5 +16,6 @@
 ## Delivery
 
 - Seed the Northstar Analytics workspace and all required campaigns, content, approvals, audiences, syncs, ads, metrics, recommendations, and activity.
+- Seed and persist seasonal and evergreen campaign templates with editable variables, multi-channel bundles, and template-use history.
 - Add unit and Playwright coverage for the core workflow.
 - Complete type, lint, test, build, and private deployment validation.

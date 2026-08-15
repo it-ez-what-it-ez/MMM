@@ -448,6 +448,14 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           runAction={runAction}
         />
       );
+    if (path === "/app/campaigns/templates")
+      return (
+        <CampaignTemplateLibrary
+          state={state}
+          navigate={navigate}
+          runAction={runAction}
+        />
+      );
     if (path === "/app/campaigns")
       return <Campaigns state={state} navigate={navigate} />;
     if (path.startsWith("/app/campaigns/"))
@@ -2167,12 +2175,20 @@ function Campaigns({
         title="Campaigns"
         description="Plan and operate coordinated, brand-aware programs across every connected channel."
         actions={
-          <button
-            className="button primary"
-            onClick={() => navigate("/app/campaigns/new")}
-          >
-            <Sparkles /> Create campaign
-          </button>
+          <>
+            <button
+              className="button secondary"
+              onClick={() => navigate("/app/campaigns/templates")}
+            >
+              <Library /> Browse templates
+            </button>
+            <button
+              className="button primary"
+              onClick={() => navigate("/app/campaigns/new")}
+            >
+              <Sparkles /> Create campaign
+            </button>
+          </>
         }
       />
       <div className="toolbar">
@@ -2264,6 +2280,398 @@ function Campaigns({
   );
 }
 
+function CampaignTemplateLibrary({
+  state,
+  navigate,
+  runAction,
+}: {
+  state: AppState;
+  navigate: (path: string) => void;
+  runAction: <T>(
+    payload: ActionPayload,
+    success: string,
+  ) => Promise<ActionResult<T>>;
+}) {
+  type Template = AppState["templates"][number];
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("All");
+  const [selected, setSelected] = useState<Template | null>(null);
+  const [campaignName, setCampaignName] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [variables, setVariables] = useState<Record<string, string>>({});
+  const [creating, setCreating] = useState(false);
+
+  const categories = [
+    "All",
+    "Seasonal",
+    "Launch",
+    "Demand generation",
+    "Lifecycle",
+  ];
+  const filtered = state.templates.filter((template) => {
+    const matchesCategory =
+      category === "All" || template.category === category;
+    const haystack =
+      `${template.name} ${template.description} ${template.occasion} ${template.channels.join(" ")}`.toLowerCase();
+    return matchesCategory && haystack.includes(search.toLowerCase().trim());
+  });
+
+  const recommendedStart = (template: Template) => {
+    const seasonal: Record<string, string> = {
+      "halloween-night-shift": "2026-10-14",
+      "bfcm-revenue-sprint": "2026-11-02",
+      "black-friday-flash-sale": "2026-11-14",
+      "cyber-monday-conversion-push": "2026-11-28",
+      "holiday-gift-guide": "2026-11-17",
+    };
+    if (seasonal[template.slug]) return seasonal[template.slug];
+    const nextWeek = new Date();
+    nextWeek.setUTCDate(nextWeek.getUTCDate() + 7);
+    return nextWeek.toISOString().slice(0, 10);
+  };
+
+  const openTemplate = (template: Template) => {
+    setSelected(template);
+    setCampaignName(
+      template.category === "Seasonal"
+        ? `${template.occasion} 2026 — ${state.brand.name}`
+        : `${template.name} — ${state.brand.name}`,
+    );
+    setStartDate(recommendedStart(template));
+    setVariables(
+      Object.fromEntries(
+        template.variables.map((item) => [item.key, item.defaultValue]),
+      ),
+    );
+  };
+
+  const createFromTemplate = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selected) return;
+    setCreating(true);
+    const result = await runAction<{ campaignId: string; assetCount: number }>(
+      {
+        type: "useCampaignTemplate",
+        templateId: selected.id,
+        name: campaignName,
+        startDate,
+        variables,
+      },
+      `${selected.name} created with ${selected.assets.length} scheduled drafts`,
+    );
+    setCreating(false);
+    if (result.ok) navigate(`/app/campaigns/${result.data.campaignId}`);
+  };
+
+  return (
+    <div className="page template-library-page">
+      <button className="back-link" onClick={() => navigate("/app/campaigns")}>
+        <ArrowLeft /> Campaigns
+      </button>
+      <PageHeader
+        eyebrow="Campaign templates"
+        title="Start with a complete campaign, not a blank page"
+        description="Choose a proven seasonal or evergreen playbook, customize the offer and timing, then review every scheduled asset before it goes live."
+        actions={
+          <button
+            className="button secondary"
+            onClick={() => navigate("/app/campaigns/new")}
+          >
+            <Sparkles /> Create with AI
+          </button>
+        }
+      />
+
+      <section className="template-hero card">
+        <div>
+          <span className="eyebrow">
+            <Library /> Ready-to-run playbooks
+          </span>
+          <h2>One choice creates the whole operating plan</h2>
+          <p>
+            Each template includes editable campaign variables, channel-specific
+            copy, relative scheduling, success metrics, and approval-ready
+            drafts.
+          </p>
+        </div>
+        <div className="template-hero-stats">
+          <span>
+            <strong>{state.templates.length}</strong> playbooks
+          </span>
+          <span>
+            <strong>
+              {state.templates.reduce(
+                (sum, item) => sum + item.assets.length,
+                0,
+              )}
+            </strong>{" "}
+            assets
+          </span>
+          <span>
+            <strong>4</strong> seasonal moments
+          </span>
+        </div>
+      </section>
+
+      <div className="template-toolbar">
+        <div className="search-box">
+          <Search />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search templates, occasions, or channels"
+            aria-label="Search campaign templates"
+          />
+        </div>
+        <div className="filter-pills">
+          {categories.map((item) => (
+            <button
+              className={category === item ? "active" : ""}
+              onClick={() => setCategory(item)}
+              key={item}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {filtered.length ? (
+        <div className="template-grid">
+          {filtered.map((template) => (
+            <article className="template-card card" key={template.id}>
+              <div className={`template-art template-art-${template.slug}`}>
+                <span className="template-occasion">{template.occasion}</span>
+                <span className="template-art-mark">
+                  {template.category === "Seasonal" ? (
+                    <CalendarDays />
+                  ) : template.category === "Launch" ? (
+                    <Rocket />
+                  ) : template.category === "Lifecycle" ? (
+                    <RefreshCw />
+                  ) : (
+                    <Megaphone />
+                  )}
+                </span>
+                <small>{template.badge}</small>
+              </div>
+              <div className="template-card-body">
+                <header>
+                  <Badge
+                    value={template.featured ? "READY_FOR_REVIEW" : "DRAFT"}
+                  >
+                    {template.featured ? "Featured" : template.category}
+                  </Badge>
+                  <span>{template.durationDays} days</span>
+                </header>
+                <h2>{template.name}</h2>
+                <p>{template.description}</p>
+                <div className="template-bundle-counts">
+                  <span>
+                    <FileText /> {template.assets.length} assets
+                  </span>
+                  <span>
+                    <Layers3 /> {template.channels.length} channels
+                  </span>
+                  <span>
+                    <CircleDollarSign />{" "}
+                    {money(
+                      template.recommendedBudget,
+                      state.workspace.currency,
+                    )}
+                  </span>
+                </div>
+                <div className="channel-row">
+                  {template.channels.map((channel) => (
+                    <span key={channel}>{channel}</span>
+                  ))}
+                </div>
+                <button
+                  className="button primary full"
+                  onClick={() => openTemplate(template)}
+                >
+                  Use template <ArrowRight />
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <Empty
+          icon={<Search />}
+          title="No matching templates"
+          text="Try another category or a broader search term."
+          action={
+            <button
+              className="button secondary"
+              onClick={() => {
+                setSearch("");
+                setCategory("All");
+              }}
+            >
+              Clear filters
+            </button>
+          }
+        />
+      )}
+
+      <Modal
+        open={Boolean(selected)}
+        onClose={() => setSelected(null)}
+        title={selected?.name ?? "Campaign template"}
+        eyebrow={
+          selected
+            ? `${selected.occasion} · ${selected.assets.length} assets · ${selected.durationDays} days`
+            : undefined
+        }
+        wide
+      >
+        {selected && (
+          <form onSubmit={(event) => void createFromTemplate(event)}>
+            <div className="modal-body template-config-layout">
+              <section className="template-preview-panel">
+                <div
+                  className={`template-art template-art-${selected.slug} large-template-art`}
+                >
+                  <span className="template-occasion">{selected.occasion}</span>
+                  <span className="template-art-mark">
+                    <CalendarDays />
+                  </span>
+                  <small>{selected.badge}</small>
+                </div>
+                <div className="template-preview-copy">
+                  <h3>What this playbook creates</h3>
+                  <p>{selected.description}</p>
+                  <dl>
+                    <div>
+                      <dt>Objective</dt>
+                      <dd>{selected.objective}</dd>
+                    </div>
+                    <div>
+                      <dt>Audience</dt>
+                      <dd>{selected.audience}</dd>
+                    </div>
+                    <div>
+                      <dt>Recommended media</dt>
+                      <dd>
+                        {money(
+                          selected.recommendedBudget,
+                          state.workspace.currency,
+                        )}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+                <div className="template-asset-timeline">
+                  <span className="eyebrow">Included schedule</span>
+                  {selected.assets.map((item, index) => (
+                    <div key={`${item.channel}-${item.type}-${index}`}>
+                      <i>
+                        {item.dayOffset === 0 ? "Day 1" : `+${item.dayOffset}d`}
+                      </i>
+                      <span className="channel-icon">
+                        {initials(item.channel)}
+                      </span>
+                      <span>
+                        <strong>{item.title}</strong>
+                        <small>
+                          {item.channel} · {item.type}
+                        </small>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <section className="template-variable-panel">
+                <div>
+                  <span className="eyebrow">Customize campaign</span>
+                  <h3>Make the playbook yours</h3>
+                  <p>
+                    These values are applied across every asset. All content
+                    remains editable after creation.
+                  </p>
+                </div>
+                <label>
+                  Campaign name
+                  <input
+                    required
+                    value={campaignName}
+                    onChange={(event) => setCampaignName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  Campaign start date
+                  <input
+                    required
+                    type="date"
+                    value={startDate}
+                    onChange={(event) => setStartDate(event.target.value)}
+                  />
+                  <small>Every asset is scheduled relative to this date.</small>
+                </label>
+                {selected.variables.map((item) => (
+                  <label key={item.key}>
+                    {item.label}
+                    <input
+                      required={item.required}
+                      type={
+                        item.kind === "number"
+                          ? "number"
+                          : item.kind === "url"
+                            ? "url"
+                            : "text"
+                      }
+                      value={variables[item.key] ?? ""}
+                      onChange={(event) =>
+                        setVariables((value) => ({
+                          ...value,
+                          [item.key]: event.target.value,
+                        }))
+                      }
+                    />
+                    <small>{item.help}</small>
+                  </label>
+                ))}
+                <div className="template-readiness">
+                  <CheckCircle2 />
+                  <span>
+                    <strong>
+                      {selected.assets.length} editable drafts ready
+                    </strong>
+                    <small>
+                      Nothing publishes until your normal approval flow is
+                      complete.
+                    </small>
+                  </span>
+                </div>
+              </section>
+            </div>
+            <footer className="modal-footer">
+              <button
+                type="button"
+                className="button ghost"
+                onClick={() => setSelected(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className="button primary"
+                type="submit"
+                disabled={creating}
+              >
+                {creating ? <Loader2 className="spin" /> : <Sparkles />}
+                {creating
+                  ? "Building campaign…"
+                  : `Create ${selected.assets.length}-asset campaign`}
+              </button>
+            </footer>
+          </form>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
 function CampaignCreator({
   state,
   navigate,
@@ -2312,6 +2720,14 @@ function CampaignCreator({
         eyebrow="New campaign"
         title="Turn an objective into coordinated execution"
         description="GrowthOS plans the campaign, drafts each channel, and keeps approval and activation in one workflow."
+        actions={
+          <button
+            className="button secondary"
+            onClick={() => navigate("/app/campaigns/templates")}
+          >
+            <Library /> Start from a template
+          </button>
+        }
       />
       <div className="mode-switch">
         <button

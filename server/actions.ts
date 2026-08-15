@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { database, initializeDatabase, loadAppState } from "@/db/runtime";
+import { instantiateCampaignTemplate } from "@/lib/campaign-templates";
 import type { ActionResult, Role } from "@/lib/types";
 import { getAIProvider, MockIntegrationAdapter } from "@/server/providers";
 
@@ -19,6 +20,13 @@ const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("createCampaign"),
     prompt: z.string().min(8),
     channels: z.array(z.string()).min(1),
+  }),
+  z.object({
+    type: z.literal("useCampaignTemplate"),
+    templateId: z.string().min(3),
+    name: z.string().min(3),
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    variables: z.record(z.string(), z.string()),
   }),
   z.object({
     type: z.literal("editContent"),
@@ -99,6 +107,7 @@ const permissions: Record<Role, Set<string>> = {
     "connectIntegration",
     "saveBrandVoice",
     "createCampaign",
+    "useCampaignTemplate",
     "editContent",
     "regenerateContent",
     "submitApproval",
@@ -117,6 +126,7 @@ const permissions: Record<Role, Set<string>> = {
     "connectIntegration",
     "saveBrandVoice",
     "createCampaign",
+    "useCampaignTemplate",
     "editContent",
     "regenerateContent",
     "submitApproval",
@@ -134,6 +144,7 @@ const permissions: Record<Role, Set<string>> = {
   MARKETER: new Set([
     "saveBrandVoice",
     "createCampaign",
+    "useCampaignTemplate",
     "editContent",
     "regenerateContent",
     "submitApproval",
@@ -252,6 +263,112 @@ export async function performAction(
       "Updated voice and style guidance",
     );
     return { ok: true, data: voice, auditEventId: auditId };
+  }
+  if (action.type === "useCampaignTemplate") {
+    const template = state.templates.find(
+      (item) => item.id === action.templateId,
+    );
+    if (!template) return { ok: false, error: "Campaign template not found." };
+
+    const missing = template.variables.filter(
+      (item) =>
+        item.required &&
+        !(action.variables[item.key] ?? item.defaultValue).trim(),
+    );
+    if (missing.length) {
+      return {
+        ok: false,
+        error: "Complete the required template fields.",
+        fields: Object.fromEntries(
+          missing.map((item) => [`variables.${item.key}`, "Required"]),
+        ),
+      };
+    }
+
+    const instance = instantiateCampaignTemplate(template, {
+      brandName: state.brand.name,
+      startDate: action.startDate,
+      variables: action.variables,
+    });
+    const campaignId = id("camp");
+    const createdAt = now();
+    await database()
+      .prepare(
+        "INSERT INTO campaigns (id, workspace_id, title, summary, objective, audience, offer, start_date, end_date, state, channels_json, plan_json, owner_id, progress, created_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, 18, ?)",
+      )
+      .bind(
+        campaignId,
+        action.name,
+        instance.summary,
+        instance.objective,
+        instance.audience,
+        instance.offer,
+        instance.startDate,
+        instance.endDate,
+        JSON.stringify(instance.channels),
+        JSON.stringify(instance.plan),
+        userId,
+        createdAt,
+      )
+      .run();
+
+    for (const generated of instance.assets) {
+      const contentId = id("content");
+      await database()
+        .prepare(
+          "INSERT INTO content_items (id, campaign_id, channel, type, title, body, state, scheduled_at, version, external_id, metrics_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, 1, NULL, ?, ?)",
+        )
+        .bind(
+          contentId,
+          campaignId,
+          generated.channel,
+          generated.type,
+          generated.title,
+          generated.body,
+          generated.scheduledAt,
+          JSON.stringify({ impressions: 0, clicks: 0, conversions: 0 }),
+          createdAt,
+        )
+        .run();
+      await database()
+        .prepare(
+          "INSERT INTO content_versions (id, content_id, version, body, reason, created_at) VALUES (?, ?, 1, ?, ?, ?)",
+        )
+        .bind(
+          id("version"),
+          contentId,
+          generated.body,
+          `Template: ${template.name}`,
+          createdAt,
+        )
+        .run();
+    }
+
+    await database()
+      .prepare(
+        "INSERT INTO campaign_template_uses (id, workspace_id, template_id, campaign_id, variables_json, created_by, created_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        id("template-use"),
+        template.id,
+        campaignId,
+        JSON.stringify(action.variables),
+        userId,
+        createdAt,
+      )
+      .run();
+    const auditId = await audit(
+      userId,
+      "CAMPAIGN_CREATED_FROM_TEMPLATE",
+      "Campaign",
+      campaignId,
+      `Created ${action.name} from ${template.name} with ${instance.assets.length} scheduled draft assets`,
+    );
+    return {
+      ok: true,
+      data: { campaignId, assetCount: instance.assets.length },
+      auditEventId: auditId,
+    };
   }
   if (action.type === "createCampaign") {
     const provider = getAIProvider();

@@ -10,6 +10,8 @@ The application is original product work inspired by the operational clarity of 
 - Integration catalog, connection wizard, connection health, capabilities, and detail views
 - Brand Kit, voice controls, media and source material management, and protected website import
 - Conversational and structured campaign creation with versioned content
+- Persistent campaign-template library with Halloween, BFCM, Black Friday, Cyber Monday, holiday, product-launch, webinar, and win-back playbooks
+- Editable template variables and complete 7–11 asset bundles scheduled relative to the selected campaign start date
 - Approval inbox, comments, bulk decisions, scheduling, and idempotent simulated publishing
 - Nested audience rules, consent filtering, customer preview, and destination eligibility
 - Calendar, paid ads, audience syncs, insights, team, audit log, and workspace settings
@@ -53,6 +55,8 @@ npm run build
 ```
 
 Playwright covers connecting Google Ads, generating a campaign, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests cover plan validation, permissions, approval gates, consent filtering, deterministic failures, learning inference, and confirmation proposals.
+
+The template acceptance journey additionally creates an 11-asset BFCM campaign through the user-facing library and verifies that every generated draft has a persisted relative schedule.
 
 ## Persistence and providers
 

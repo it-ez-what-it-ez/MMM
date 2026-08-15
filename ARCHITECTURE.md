@@ -18,9 +18,11 @@ The browser never receives provider credentials, direct database access, or an a
 
 ## Data model
 
-`db/schema.ts` defines the relational model for workspaces, members, demo sessions, brand profiles, integrations, connections, campaigns, immutable content versions, approvals, comments, audiences, syncs and runs, paid ads, metrics, recommendations, preferences, media, source material, operation ledger entries, jobs, and audit events.
+`db/schema.ts` defines the relational model for workspaces, members, demo sessions, brand profiles, integrations, connections, campaign templates and template-use history, campaigns, immutable content versions, approvals, comments, audiences, syncs and runs, paid ads, metrics, recommendations, preferences, media, source material, operation ledger entries, jobs, and audit events.
 
 Flexible campaign plans, provider capabilities, voice settings, and nested audience rules are stored as JSON after Zod validation. Ownership, workflow state, idempotency, and relationships remain relational so they can be queried and enforced independently of flexible payloads.
+
+Template definitions are Zod-validated before seeding and again when read from D1. Instantiation merges persisted defaults with user-edited values and the explicit Brand Kit name, renders every asset, calculates each relative schedule in UTC, and records the template-to-campaign relationship. Generated content enters the same draft, versioning, approval, calendar, and publishing workflow as AI-created content.
 
 `db/runtime.ts` applies numbered SQL migrations and performs idempotent seed insertion. The Northstar Analytics data set is deterministic, so fresh local and hosted environments start in a known acceptance state.
 

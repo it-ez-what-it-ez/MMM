@@ -8,6 +8,13 @@
       "when": 1786816823177,
       "tag": "0000_motionless_magneto",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786833788297,
+      "tag": "0001_shallow_tigra",
+      "breakpoints": true
     }
   ]
 }
