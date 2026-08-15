@@ -33,12 +33,12 @@ The local database is migrated and seeded automatically on first access. Migrati
 
 Use the identity switcher in the application header:
 
-| Identity | Role | Capabilities |
-| --- | --- | --- |
-| Avery Chen | Owner | Full workspace, connection, activation, and settings control |
-| Priya Shah | Marketer | Campaigns, content, audiences, scheduling, and approved publishing |
-| Mateo Ruiz | Reviewer | Approve, reject, request changes, and comment |
-| Simone Brooks | Viewer | Read-only workspace access |
+| Identity      | Role     | Capabilities                                                       |
+| ------------- | -------- | ------------------------------------------------------------------ |
+| Avery Chen    | Owner    | Full workspace, connection, activation, and settings control       |
+| Priya Shah    | Marketer | Campaigns, content, audiences, scheduling, and approved publishing |
+| Mateo Ruiz    | Reviewer | Approve, reject, request changes, and comment                      |
+| Simone Brooks | Viewer   | Read-only workspace access                                         |
 
 The selected identity is stored in an HTTP-only demo-session cookie. Every mutation is authorized again on the server and recorded in the audit log.
 
@@ -60,10 +60,11 @@ Playwright covers connecting Google Ads, generating a campaign, approval, public
 - Cloudflare R2 stores approved image uploads and source assets.
 - `AIProvider` and `IntegrationAdapter` are server-only typed contracts in `server/providers.ts`.
 - `MockAIProvider` is the default and produces deterministic, Zod-validated output.
+- `RemoteAIProvider` activates only when `AI_PROVIDER=remote` and its server-only URL, API key, and model are configured; invalid or unavailable responses recover safely to deterministic generation.
 - Mock adapters simulate Meta Ads, Google Ads, Instagram, LinkedIn, Klaviyo, WordPress, Google Analytics, and Slack without collecting credentials.
 - Consequential AI actions return confirmation proposals; publish, activation, budget, deletion, and bulk approval always require a user-confirmed server mutation.
 
-To add a real AI provider, implement `AIProvider`, validate its structured output with the exported schemas, select it from server-only environment configuration, and keep a deterministic fallback for demos and tests. To add an external destination, implement `IntegrationAdapter`, declare capabilities, and route writes through the operation ledger using an idempotency key.
+The included remote boundary sends `{ model, operation, input }` to a vendor-neutral JSON endpoint and accepts a structured value directly or inside `{ data }` / `{ output }`. To add a specialized provider, implement `AIProvider`, validate its output with the exported schemas, and retain the deterministic fallback. To add an external destination, implement `IntegrationAdapter`, declare capabilities, and route writes through the operation ledger using an idempotency key.
 
 ## Environment
 
