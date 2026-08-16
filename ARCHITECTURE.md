@@ -60,9 +60,11 @@ AI tools are separated into read tools and proposal tools. Any consequential act
 
 ## Client structure
 
-`app/components/GrowthOSApp.tsx` contains the shared shell and functional product surfaces. Product naming, navigation, metadata, and feature labels are centralized in `lib/product.ts`; colors, spacing, focus, responsive behavior, and light/dark tokens live in `app/globals.css`.
+`app/components/GrowthOSApp.tsx` contains the shared shell and functional product surfaces. Product naming, navigation, metadata, feature labels, the shared `ChannelKey` classifier, route aliases, and campaign-tab routing are centralized in `lib/product.ts`; colors, spacing, focus, responsive behavior, and light/dark tokens live in `app/globals.css`.
 
-The UI is keyboard navigable, uses semantic controls for interactive cards, labels custom inputs, closes dialogs and drawers with Escape, and collapses navigation for narrow screens. Charts are descriptive rather than decision-making controls, so the same metrics remain available in text.
+The client derives Social, Email & Messaging, Paid Ads, and Web & Content workspaces from the existing campaign, content, template, paid-ad, schedule, and metric records. This keeps the channel-first presentation free of duplicate data. Primary pages reveal only the next useful layer; Brand & Assets, Audiences, Connections & Syncs, Team, Audit, and Settings stay available under Manage.
+
+The UI is keyboard navigable, uses semantic controls for interactive cards and tabs, labels custom inputs, closes dialogs and drawers with Escape, and replaces the sidebar with a five-destination bottom bar on narrow screens. Charts are descriptive rather than decision-making controls, so the same metrics remain available in text.
 
 ## Testing strategy
 

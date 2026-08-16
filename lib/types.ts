@@ -73,6 +73,10 @@ export type Campaign = {
     successMetrics: string[];
     risks: string[];
     assumptions: string[];
+    templateId?: string;
+    templateName?: string;
+    recommendedBudget?: number;
+    variables?: Record<string, string>;
   };
   ownerId: string;
   progress: number;

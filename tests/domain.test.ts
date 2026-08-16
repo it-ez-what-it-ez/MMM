@@ -23,6 +23,14 @@ import {
   renderTemplateString,
   seededCampaignTemplates,
 } from "@/lib/campaign-templates";
+import {
+  campaignTabRoute,
+  channelNavigation,
+  classifyChannel,
+  manageNavigation,
+  resolveLegacyRoute,
+  templateMatchesChannel,
+} from "@/lib/product";
 
 const definitions: IntegrationDefinition[] = [
   {
@@ -210,5 +218,39 @@ describe("GrowthOS domain rules", () => {
       true,
     );
     expect(JSON.stringify(instance)).not.toContain("{{discount}}");
+  });
+  it("classifies provider and content labels into the four workspaces", () => {
+    expect(classifyChannel("LinkedIn organic post")).toBe("social");
+    expect(classifyChannel("Klaviyo Email")).toBe("messaging");
+    expect(classifyChannel("Google Ads")).toBe("paid");
+    expect(classifyChannel("LinkedIn Ads")).toBe("paid");
+    expect(classifyChannel("SEO landing page")).toBe("web");
+  });
+  it("filters templates using the same channel mapping as workspaces", () => {
+    const bfcm = seededCampaignTemplates.find(
+      (item) => item.id === "template-bfcm",
+    )!;
+    expect(templateMatchesChannel(bfcm, "social")).toBe(true);
+    expect(templateMatchesChannel(bfcm, "messaging")).toBe(true);
+    expect(templateMatchesChannel(bfcm, "paid")).toBe(true);
+    expect(templateMatchesChannel(bfcm, "web")).toBe(false);
+  });
+  it("keeps primary navigation compact and advanced pages under Manage", () => {
+    expect(channelNavigation.map(([label]) => label)).toEqual([
+      "Social",
+      "Email & Messaging",
+      "Paid Ads",
+      "Web & Content",
+    ]);
+    expect(manageNavigation.map(([label]) => label)).toContain(
+      "Connections & Syncs",
+    );
+  });
+  it("preserves legacy paid-ad URLs and stable campaign tab routes", () => {
+    expect(resolveLegacyRoute("/app/paid-ads")).toBe("/app/channels/paid");
+    expect(resolveLegacyRoute("/app/calendar")).toBe("/app/calendar");
+    expect(campaignTabRoute("campaign-1", "content")).toBe(
+      "/app/campaigns/campaign-1/content",
+    );
   });
 });

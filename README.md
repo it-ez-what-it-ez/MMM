@@ -6,15 +6,16 @@ The application is original product work inspired by the operational clarity of 
 
 ## What is included
 
-- Home command center with onboarding, objectives, metrics, warnings, and activity
+- A focused Today home with one recommended next action, work to continue, approvals, upcoming schedules, and three performance metrics
+- Channel-first workspaces for Social, Email & Messaging, Paid Ads, and Web & Content; every workspace uses the same Work → Templates → Results structure
 - Integration catalog, connection wizard, connection health, capabilities, and detail views
 - Brand Kit, voice controls, media and source material management, and protected website import
-- Conversational and structured campaign creation with versioned content
+- Template-first campaign creation in three focused steps, plus a secondary one-objective custom AI flow
 - Persistent campaign-template library with Halloween, BFCM, Black Friday, Cyber Monday, holiday, product-launch, webinar, and win-back playbooks
 - Editable template variables and complete 7–11 asset bundles scheduled relative to the selected campaign start date
 - Approval inbox, comments, bulk decisions, scheduling, and idempotent simulated publishing
 - Nested audience rules, consent filtering, customer preview, and destination eligibility
-- Calendar, paid ads, audience syncs, insights, team, audit log, and workspace settings
+- Four-tab campaign workspaces (Overview, Content, Schedule, Results), list-first approvals, simplified calendar and insights, plus full advanced tools under Manage
 - Deterministic AI and integration adapters with stable provider IDs and recoverable failures
 - Seeded Owner, Marketer, Reviewer, and Viewer identities for permission testing
 
@@ -35,12 +36,12 @@ The local database is migrated and seeded automatically on first access. Migrati
 
 Use the identity switcher in the application header:
 
-| Identity      | Role     | Capabilities                                                       |
-| ------------- | -------- | ------------------------------------------------------------------ |
-| Avery Chen    | Owner    | Full workspace, connection, activation, and settings control       |
-| Priya Shah    | Marketer | Campaigns, content, audiences, scheduling, and approved publishing |
-| Mateo Ruiz    | Reviewer | Approve, reject, request changes, and comment                      |
-| Simone Brooks | Viewer   | Read-only workspace access                                         |
+| Identity   | Role     | Capabilities                                                       |
+| ---------- | -------- | ------------------------------------------------------------------ |
+| Maya Chen  | Owner    | Full workspace, connection, activation, and settings control       |
+| Priya Shah | Marketer | Campaigns, content, audiences, scheduling, and approved publishing |
+| Eli Morgan | Reviewer | Approve, reject, request changes, and comment                      |
+| Sofia Kim  | Viewer   | Read-only workspace access                                         |
 
 The selected identity is stored in an HTTP-only demo-session cookie. Every mutation is authorized again on the server and recorded in the audit log.
 
@@ -54,9 +55,9 @@ npm run test:e2e
 npm run build
 ```
 
-Playwright covers connecting Google Ads, generating a campaign, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests cover plan validation, permissions, approval gates, consent filtering, deterministic failures, learning inference, and confirmation proposals.
+Playwright covers Today, all four channel workspaces, custom AI creation, the three-step BFCM flow, four-tab campaign routing, Manage access, responsive navigation, integrations, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests additionally cover channel classification, template filtering, simplified navigation, legacy aliases, and campaign-tab routing.
 
-The template acceptance journey additionally creates an 11-asset BFCM campaign through the user-facing library and verifies that every generated draft has a persisted relative schedule.
+The template acceptance journey creates an 11-asset BFCM campaign in three focused steps and verifies that every generated draft has a persisted relative schedule.
 
 ## Persistence and providers
 

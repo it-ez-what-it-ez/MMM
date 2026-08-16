@@ -1,19 +1,12 @@
 "use client";
 
-import {
-  useCallback,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
   BarChart3,
-  Bell,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -27,8 +20,6 @@ import {
   Globe2,
   HeartPulse,
   Home,
-  Layers3,
-  LayoutGrid,
   Library,
   Link2,
   ListFilter,
@@ -59,8 +50,6 @@ import {
   Zap,
 } from "lucide-react";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -69,7 +58,21 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { navigation, product } from "@/lib/product";
+import {
+  channelKeys,
+  channelNavigation,
+  channelWorkspaces,
+  campaignTabKeys,
+  campaignTabRoute,
+  classifyChannel,
+  manageNavigation,
+  operationsNavigation,
+  primaryNavigation,
+  product,
+  resolveLegacyRoute,
+  templateMatchesChannel,
+  type ChannelKey,
+} from "@/lib/product";
 import type {
   ActionResult,
   AppState,
@@ -97,6 +100,9 @@ const iconMap: Record<string, ReactNode> = {
   team: <Users />,
   audit: <Activity />,
   settings: <Settings />,
+  social: <Send />,
+  messaging: <MessageSquareText />,
+  web: <Globe2 />,
 };
 
 const roleLabels: Record<Role, string> = {
@@ -322,6 +328,7 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
   const [path, setPath] = useState(initialPath);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNav, setMobileNav] = useState(false);
+  const [manageOpen, setManageOpen] = useState(false);
   const [assistantOpen, setAssistantOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
@@ -422,25 +429,54 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
     );
 
   const renderView = () => {
-    if (path === "/app")
+    const routedPath = resolveLegacyRoute(path);
+    if (routedPath === "/app")
       return (
         <Dashboard state={state} navigate={navigate} runAction={runAction} />
       );
-    if (path === "/app/integrations")
+    if (routedPath === "/app/channels/paid/manage")
+      return <PaidAdsView state={state} runAction={runAction} />;
+    if (routedPath.startsWith("/app/channels/")) {
+      const channel = routedPath.split("/")[3] as ChannelKey;
+      if (channelKeys.includes(channel))
+        return (
+          <ChannelWorkspace
+            channel={channel}
+            state={state}
+            navigate={navigate}
+          />
+        );
+    }
+    if (routedPath === "/app/integrations")
       return (
         <Integrations state={state} navigate={navigate} runAction={runAction} />
       );
-    if (path.startsWith("/app/integrations/"))
+    if (routedPath.startsWith("/app/integrations/"))
       return (
         <ConnectionDetail
           state={state}
-          connectionId={path.split("/").pop()!}
+          connectionId={routedPath.split("/").pop()!}
           navigate={navigate}
         />
       );
-    if (path === "/app/brand-kit")
+    if (routedPath === "/app/brand-kit")
       return <BrandKit state={state} runAction={runAction} />;
-    if (path === "/app/campaigns/new")
+    if (routedPath.startsWith("/app/campaigns/new")) {
+      const maybeChannel = routedPath.split("/")[4] as ChannelKey | undefined;
+      return (
+        <CampaignCreator
+          state={state}
+          navigate={navigate}
+          runAction={runAction}
+          initialChannel={
+            maybeChannel && channelKeys.includes(maybeChannel)
+              ? maybeChannel
+              : undefined
+          }
+        />
+      );
+    }
+    if (routedPath === "/app/campaigns/templates")
       return (
         <CampaignCreator
           state={state}
@@ -448,42 +484,35 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           runAction={runAction}
         />
       );
-    if (path === "/app/campaigns/templates")
-      return (
-        <CampaignTemplateLibrary
-          state={state}
-          navigate={navigate}
-          runAction={runAction}
-        />
-      );
-    if (path === "/app/campaigns")
+    if (routedPath === "/app/campaigns")
       return <Campaigns state={state} navigate={navigate} />;
-    if (path.startsWith("/app/campaigns/"))
+    if (routedPath.startsWith("/app/campaigns/")) {
+      const parts = routedPath.split("/");
       return (
         <CampaignWorkspace
           state={state}
-          campaignId={path.split("/").pop()!}
+          campaignId={parts[3]}
+          activeTab={parts[4]}
           navigate={navigate}
           runAction={runAction}
         />
       );
-    if (path === "/app/calendar")
+    }
+    if (routedPath === "/app/calendar")
       return <CalendarView state={state} runAction={runAction} />;
-    if (path === "/app/approvals")
+    if (routedPath === "/app/approvals")
       return <ApprovalsView state={state} runAction={runAction} />;
-    if (path === "/app/audiences")
+    if (routedPath === "/app/audiences")
       return <AudiencesView state={state} runAction={runAction} />;
-    if (path === "/app/syncs")
+    if (routedPath === "/app/syncs")
       return <SyncsView state={state} runAction={runAction} />;
-    if (path === "/app/paid-ads")
-      return <PaidAdsView state={state} runAction={runAction} />;
-    if (path === "/app/insights")
+    if (routedPath === "/app/insights")
       return (
         <InsightsView state={state} navigate={navigate} runAction={runAction} />
       );
-    if (path === "/app/team") return <TeamView state={state} />;
-    if (path === "/app/audit-log") return <AuditView state={state} />;
-    if (path === "/app/settings")
+    if (routedPath === "/app/team") return <TeamView state={state} />;
+    if (routedPath === "/app/audit-log") return <AuditView state={state} />;
+    if (routedPath === "/app/settings")
       return <SettingsView state={state} runAction={runAction} />;
     return (
       <Empty
@@ -534,18 +563,25 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           onClick={() => navigate("/app/campaigns/new")}
         >
           <Plus />
-          {sidebarOpen && "Create campaign"}
+          {sidebarOpen && "Create"}
         </button>
         <nav aria-label="Main navigation">
-          {navigation.map((section) => (
-            <div className="nav-section" key={section.group || "home"}>
-              {sidebarOpen && section.group && (
+          {[
+            { group: "", items: primaryNavigation },
+            { group: "Channels", items: channelNavigation },
+            { group: "", items: operationsNavigation },
+          ].map((section, sectionIndex) => (
+            <div
+              className="nav-section"
+              key={`${section.group}-${sectionIndex}`}
+            >
+              {sidebarOpen && section.group ? (
                 <span className="nav-label">{section.group}</span>
-              )}
+              ) : null}
               {section.items.map(([label, href, icon]) => (
                 <button
                   key={label}
-                  className={`nav-item ${path === href.split("?")[0] || (href !== "/app" && path.startsWith(href.split("?")[0] + "/")) ? "active" : ""}`}
+                  className={`nav-item ${path === href || (href !== "/app" && path.startsWith(`${href}/`)) || (href === "/app/channels/paid" && path === "/app/paid-ads") ? "active" : ""}`}
                   title={!sidebarOpen ? label : undefined}
                   onClick={() => navigate(href)}
                 >
@@ -566,20 +602,42 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
               ))}
             </div>
           ))}
+          <div className="nav-section manage-nav">
+            <button
+              className={`nav-item manage-trigger ${manageOpen ? "open" : ""}`}
+              onClick={() => setManageOpen((value) => !value)}
+              aria-expanded={manageOpen}
+            >
+              <Settings />
+              {sidebarOpen && <span>Manage</span>}
+              {sidebarOpen && (manageOpen ? <ChevronDown /> : <ChevronRight />)}
+            </button>
+            {manageOpen && (
+              <div className="manage-items">
+                {manageNavigation.map(([label, href, icon]) => (
+                  <button
+                    key={label}
+                    className={`nav-item ${path === href || path.startsWith(`${href}/`) ? "active" : ""}`}
+                    title={!sidebarOpen ? label : undefined}
+                    onClick={() => navigate(href)}
+                  >
+                    {iconMap[icon]}
+                    {sidebarOpen && <span>{label}</span>}
+                  </button>
+                ))}
+                <button
+                  className={`nav-item ${path === "/app/syncs" ? "active" : ""}`}
+                  title={!sidebarOpen ? "Data Syncs" : undefined}
+                  onClick={() => navigate("/app/syncs")}
+                >
+                  <RefreshCw />
+                  {sidebarOpen && <span>Data Syncs</span>}
+                </button>
+              </div>
+            )}
+          </div>
         </nav>
         <div className="sidebar-footer">
-          <button
-            className="nav-item ai-shortcut"
-            onClick={() => setAssistantOpen(true)}
-          >
-            <Sparkles />
-            {sidebarOpen && (
-              <>
-                <span>AI assistant</span>
-                <kbd>⌘/</kbd>
-              </>
-            )}
-          </button>
           <div className="health-strip">
             <span className="pulse-dot" />
             {sidebarOpen && <span>All systems operational</span>}
@@ -612,11 +670,10 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           </button>
           <div className="topbar-actions">
             <button
-              className="icon-button has-notification"
-              aria-label="Notifications"
+              className="button ask-growthos"
+              onClick={() => setAssistantOpen(true)}
             >
-              <Bell />
-              <i />
+              <Sparkles /> Ask GrowthOS
             </button>
             <div className="identity-menu">
               <select
@@ -641,6 +698,27 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
         </header>
         <main>{renderView()}</main>
       </section>
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
+        {[
+          ["Home", "/app", <Home key="home" />],
+          ["Campaigns", "/app/campaigns", <Megaphone key="campaigns" />],
+          ["Social", "/app/channels/social", <Send key="social" />],
+          ["Approvals", "/app/approvals", <ShieldCheck key="approvals" />],
+        ].map(([label, href, icon]) => (
+          <button
+            key={String(label)}
+            className={path === href ? "active" : ""}
+            onClick={() => navigate(String(href))}
+          >
+            {icon}
+            <span>{label}</span>
+          </button>
+        ))}
+        <button onClick={() => setMobileNav(true)}>
+          <Menu />
+          <span>More</span>
+        </button>
+      </nav>
       <Assistant
         open={assistantOpen}
         onClose={() => setAssistantOpen(false)}
@@ -665,7 +743,6 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
 function Dashboard({
   state,
   navigate,
-  runAction,
 }: {
   state: AppState;
   navigate: (path: string) => void;
@@ -674,360 +751,444 @@ function Dashboard({
     success: string,
   ) => Promise<ActionResult<T>>;
 }) {
-  const [prompt, setPrompt] = useState("");
-  const [range, setRange] = useState<7 | 30>(30);
-  const [creating, setCreating] = useState(false);
-  const pending = state.approvals.filter(
-    (item) => item.state === "PENDING",
-  ).length;
-  const connected = state.connections.filter(
-    (item) => item.state === "CONNECTED",
-  ).length;
-  const scheduled = state.content.filter(
-    (item) => item.state === "SCHEDULED",
-  ).length;
-  const filtered = state.metrics.slice(-range);
-  const totals = filtered.reduce(
+  const pendingApprovals = state.approvals
+    .filter((item) => item.state === "PENDING")
+    .slice(0, 3);
+  const workToContinue = state.campaigns
+    .filter((item) =>
+      ["DRAFT", "READY_FOR_REVIEW", "AWAITING_APPROVAL", "SCHEDULED"].includes(
+        item.state,
+      ),
+    )
+    .slice(0, 3);
+  const upcoming = state.content
+    .filter((item) => item.state === "SCHEDULED" && item.scheduledAt)
+    .sort(
+      (a, b) =>
+        new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime(),
+    )
+    .slice(0, 4);
+  const degraded = state.connections.find(
+    (item) => item.state === "DEGRADED" || item.state === "FAILED",
+  );
+  const failedSync = state.syncRuns.find((item) => item.state === "FAILED");
+  const metrics = state.metrics.slice(-30).reduce(
     (sum, item) => ({
       impressions: sum.impressions + item.impressions,
-      clicks: sum.clicks + item.clicks,
       leads: sum.leads + item.leads,
-      spend: sum.spend + item.spend,
       revenue: sum.revenue + item.revenue,
     }),
-    { impressions: 0, clicks: 0, leads: 0, spend: 0, revenue: 0 },
+    { impressions: 0, leads: 0, revenue: 0 },
   );
-  const create = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!prompt.trim()) return;
-    setCreating(true);
-    const result = await runAction<{ campaignId: string }>(
-      {
-        type: "createCampaign",
-        prompt,
-        channels: ["LinkedIn", "Email", "Meta Ads"],
-      },
-      "Coordinated campaign generated",
-    );
-    setCreating(false);
-    if (result.ok) navigate(`/app/campaigns/${result.data.campaignId}`);
-  };
-  const checklist = [
-    [
-      "Complete Brand Kit",
-      Boolean(state.brand.voice.traits.length),
-      "/app/brand-kit",
-    ],
-    [
-      "Connect a data source",
-      state.connections.some(
-        (connection) =>
-          state.definitions.find(
-            (definition) => definition.id === connection.definitionId,
-          )?.direction !== "DESTINATION",
-      ),
-      "/app/integrations",
-    ],
-    [
-      "Connect a publishing destination",
-      state.connections.some((connection) =>
-        connection.capabilities.includes("PUBLISH_ORGANIC_CONTENT"),
-      ),
-      "/app/integrations",
-    ],
-    [
-      "Connect analytics",
-      state.connections.some((connection) =>
-        connection.capabilities.includes("READ_METRICS"),
-      ),
-      "/app/integrations",
-    ],
-    ["Create first campaign", state.campaigns.length > 0, "/app/campaigns"],
-    [
-      "Approve first content",
-      state.content.some((item) =>
-        ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(item.state),
-      ),
-      "/app/approvals",
-    ],
-  ] as const;
+  const draft = state.campaigns.find((item) => item.state === "DRAFT");
+  const recommendation = pendingApprovals.length
+    ? {
+        title: `Review ${pendingApprovals.length} item${pendingApprovals.length === 1 ? "" : "s"} waiting for you`,
+        text: "Keep scheduled work moving by making these approval decisions.",
+        label: "Review approvals",
+        href: "/app/approvals",
+      }
+    : draft
+      ? {
+          title: `Continue ${draft.title}`,
+          text: "The campaign has a draft ready for its next step.",
+          label: "Continue campaign",
+          href: `/app/campaigns/${draft.id}/content`,
+        }
+      : degraded || failedSync
+        ? {
+            title: "Restore a marketing connection",
+            text: "One connection needs attention before the next activation.",
+            label: "View connections",
+            href: "/app/integrations",
+          }
+        : {
+            title: "Start your next coordinated campaign",
+            text: "Choose a proven template and customize only what matters.",
+            label: "Choose a template",
+            href: "/app/campaigns/new",
+          };
+
   return (
-    <div className="page dashboard-page">
-      <section className="command-hero">
-        <div className="hero-copy">
-          <span className="eyebrow">
-            <Sparkles /> GrowthOS command center
-          </span>
-          <h1>Good afternoon, {state.currentUser.name.split(" ")[0]}.</h1>
-          <p>What outcome should your marketing team create next?</p>
-        </div>
-        <form className="ai-command" onSubmit={create}>
-          <div className="ai-orb">
-            <Sparkles />
-          </div>
-          <textarea
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            placeholder="What do you want to achieve?"
-            aria-label="Campaign objective"
-          />
+    <div className="page today-page">
+      <PageHeader
+        title="Today"
+        description={`Welcome back, ${state.currentUser.name.split(" ")[0]}. Here is the work that matters next.`}
+        actions={
           <button
-            className="command-send"
-            disabled={creating || !prompt.trim()}
-            aria-label="Generate campaign"
+            className="button primary"
+            onClick={() => navigate("/app/campaigns/new")}
           >
-            {creating ? <Loader2 className="spin" /> : <ArrowRight />}
+            <Plus /> Create
           </button>
-          <div className="suggestion-row">
-            {[
-              "Launch a new feature",
-              "Create educational content",
-              "Re-engage inactive trials",
-            ].map((value) => (
-              <button
-                type="button"
-                onClick={() => setPrompt(value)}
-                key={value}
-              >
-                {value}
-              </button>
-            ))}
-          </div>
-        </form>
+        }
+      />
+
+      {(degraded || failedSync) && (
+        <button
+          className="today-warning"
+          onClick={() =>
+            navigate(degraded ? "/app/integrations" : "/app/syncs")
+          }
+        >
+          <AlertTriangle />
+          <span>
+            <strong>
+              {degraded
+                ? "A connection needs attention"
+                : "A customer sync failed"}
+            </strong>
+            <small>
+              {degraded?.lastError ??
+                failedSync?.error ??
+                "Review the diagnostic and retry when ready."}
+            </small>
+          </span>
+          <ChevronRight />
+        </button>
+      )}
+
+      <section className="recommended-action" aria-labelledby="next-action">
+        <div>
+          <span>Recommended next action</span>
+          <h2 id="next-action">{recommendation.title}</h2>
+          <p>{recommendation.text}</p>
+        </div>
+        <button
+          className="button primary"
+          onClick={() => navigate(recommendation.href)}
+        >
+          {recommendation.label} <ArrowRight />
+        </button>
       </section>
-      <div className="dashboard-grid">
-        <section className="card setup-card">
+
+      <div className="today-layout">
+        <section className="card today-section">
           <div className="card-head">
             <div>
-              <span className="eyebrow">Workspace setup</span>
-              <h2>Ready to orchestrate</h2>
+              <h2>Work to continue</h2>
+              <p>Pick up where you left off.</p>
             </div>
-            <strong>
-              {checklist.filter(([, done]) => done).length}/{checklist.length}
-            </strong>
           </div>
-          <div className="progress-track">
-            <span
-              style={{
-                width: `${(checklist.filter(([, done]) => done).length / checklist.length) * 100}%`,
-              }}
-            />
-          </div>
-          <div className="checklist">
-            {checklist.map(([label, done, href]) => (
-              <button onClick={() => navigate(href)} key={label}>
-                <span className={done ? "complete" : ""}>
-                  {done ? <Check /> : <span />}
+          <div className="comfortable-list">
+            {workToContinue.map((campaign) => (
+              <button
+                key={campaign.id}
+                onClick={() =>
+                  navigate(`/app/campaigns/${campaign.id}/overview`)
+                }
+              >
+                <span className="list-icon">
+                  <Megaphone />
                 </span>
-                {label}
+                <span>
+                  <strong>{campaign.title}</strong>
+                  <small>{campaign.channels.join(" · ")}</small>
+                </span>
+                <Badge value={campaign.state} />
                 <ChevronRight />
               </button>
             ))}
+            {!workToContinue.length && (
+              <Empty
+                icon={<CheckCircle2 />}
+                title="You are caught up"
+                text="Start from a template when you are ready."
+              />
+            )}
           </div>
         </section>
-        <section className="card overview-card">
+
+        <section className="card today-section">
           <div className="card-head">
             <div>
-              <span className="eyebrow">Operations</span>
-              <h2>Workspace pulse</h2>
+              <h2>Needs approval</h2>
+              <p>Up to three decisions awaiting review.</p>
             </div>
             <button
               className="text-button"
-              onClick={() => navigate("/app/audit-log")}
+              onClick={() => navigate("/app/approvals")}
             >
-              View activity <ArrowRight />
+              View all
             </button>
           </div>
-          <div className="mini-stat-grid">
-            <button onClick={() => navigate("/app/campaigns")}>
-              <strong>
-                {
-                  state.campaigns.filter((item) =>
-                    ["LIVE", "SCHEDULED"].includes(item.state),
-                  ).length
-                }
-              </strong>
-              <span>Active campaigns</span>
-              <small className="trend-up">+1 this month</small>
-            </button>
-            <button onClick={() => navigate("/app/approvals")}>
-              <strong>{pending}</strong>
-              <span>Awaiting approval</span>
-              <small>{pending ? "Needs review" : "All clear"}</small>
-            </button>
-            <button onClick={() => navigate("/app/calendar")}>
-              <strong>{scheduled}</strong>
-              <span>Scheduled posts</span>
-              <small>Next 14 days</small>
-            </button>
-            <button onClick={() => navigate("/app/integrations")}>
-              <strong>{connected}</strong>
-              <span>Healthy connections</span>
-              <small>
-                {
-                  state.connections.filter((item) => item.state === "DEGRADED")
-                    .length
-                }{" "}
-                warning
-              </small>
-            </button>
+          <div className="comfortable-list">
+            {pendingApprovals.map((approval) => {
+              const item = state.content.find(
+                (content) => content.id === approval.contentId,
+              );
+              return (
+                <button
+                  key={approval.id}
+                  onClick={() => navigate("/app/approvals")}
+                >
+                  <span className="list-icon">
+                    <ShieldCheck />
+                  </span>
+                  <span>
+                    <strong>{item?.title ?? "Content review"}</strong>
+                    <small>{item?.channel ?? "Campaign content"}</small>
+                  </span>
+                  <Badge value={approval.state} />
+                  <ChevronRight />
+                </button>
+              );
+            })}
+            {!pendingApprovals.length && (
+              <Empty
+                icon={<CheckCircle2 />}
+                title="No approvals waiting"
+                text="New submissions will appear here."
+              />
+            )}
           </div>
         </section>
       </div>
-      <section className="card performance-card">
+
+      <section className="card today-section">
         <div className="card-head">
           <div>
-            <span className="eyebrow">Cross-channel performance</span>
-            <h2>Marketing is building momentum</h2>
+            <h2>Coming up</h2>
+            <p>Your next scheduled marketing moments.</p>
           </div>
-          <div className="segmented">
-            <button
-              className={range === 7 ? "active" : ""}
-              onClick={() => setRange(7)}
-            >
-              7 days
-            </button>
-            <button
-              className={range === 30 ? "active" : ""}
-              onClick={() => setRange(30)}
-            >
-              30 days
-            </button>
-          </div>
+          <button
+            className="text-button"
+            onClick={() => navigate("/app/calendar")}
+          >
+            Open calendar
+          </button>
         </div>
-        <div className="performance-layout">
-          <div className="performance-stats">
+        <div className="upcoming-row">
+          {upcoming.map((item) => (
+            <button
+              key={item.id}
+              onClick={() =>
+                navigate(`/app/campaigns/${item.campaignId}/schedule`)
+              }
+            >
+              <time>{date(item.scheduledAt)}</time>
+              <strong>{item.title}</strong>
+              <small>{item.channel}</small>
+            </button>
+          ))}
+          {!upcoming.length && (
+            <p className="muted-copy">Nothing is scheduled yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="today-metrics" aria-label="Performance summary">
+        <div>
+          <span>Impressions</span>
+          <strong>{compact(metrics.impressions)}</strong>
+          <small>Last 30 days</small>
+        </div>
+        <div>
+          <span>Leads</span>
+          <strong>{compact(metrics.leads)}</strong>
+          <small>Last 30 days</small>
+        </div>
+        <div>
+          <span>Revenue</span>
+          <strong>{money(metrics.revenue, state.workspace.currency)}</strong>
+          <small>Last 30 days</small>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ChannelWorkspace({
+  channel,
+  state,
+  navigate,
+}: {
+  channel: ChannelKey;
+  state: AppState;
+  navigate: (path: string) => void;
+}) {
+  const config = channelWorkspaces[channel];
+  const [tab, setTab] = useState<"work" | "templates" | "results">("work");
+  const content = state.content.filter(
+    (item) => classifyChannel(`${item.channel} ${item.type}`) === channel,
+  );
+  const templates = state.templates.filter((item) =>
+    templateMatchesChannel(item, channel),
+  );
+  const totals = content.reduce(
+    (sum, item) => ({
+      impressions: sum.impressions + item.metrics.impressions,
+      clicks: sum.clicks + item.metrics.clicks,
+      conversions: sum.conversions + item.metrics.conversions,
+    }),
+    { impressions: 0, clicks: 0, conversions: 0 },
+  );
+
+  return (
+    <div className="page channel-page">
+      <PageHeader
+        title={config.label}
+        description={config.description}
+        actions={
+          <button
+            className="button primary"
+            onClick={() => navigate(`/app/campaigns/new/${channel}`)}
+          >
+            <Plus /> Create
+          </button>
+        }
+      />
+      <div className="simple-tabs" role="tablist" aria-label={config.label}>
+        {[
+          ["work", config.noun],
+          ["templates", "Templates"],
+          ["results", "Results"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            role="tab"
+            aria-selected={tab === value}
+            className={tab === value ? "active" : ""}
+            onClick={() => setTab(value as "work" | "templates" | "results")}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "work" && (
+        <section className="card channel-work-list" role="tabpanel">
+          <div className="comfortable-table-head">
+            <span>{config.singular}</span>
+            <span>Campaign</span>
+            <span>Status</span>
+            <span>Scheduled</span>
+          </div>
+          {channel === "paid" &&
+            state.paidAds.map((ad) => (
+              <button
+                className="comfortable-table-row"
+                key={ad.id}
+                onClick={() => navigate("/app/channels/paid/manage")}
+              >
+                <span>
+                  <strong>{ad.name}</strong>
+                  <small>{ad.platform}</small>
+                </span>
+                <span>{ad.objective}</span>
+                <span>
+                  <Badge value={ad.state} />
+                </span>
+                <span>{ad.dateRange}</span>
+              </button>
+            ))}
+          {content.map((item) => {
+            const campaign = state.campaigns.find(
+              (candidate) => candidate.id === item.campaignId,
+            );
+            return (
+              <button
+                className="comfortable-table-row"
+                key={item.id}
+                onClick={() =>
+                  navigate(`/app/campaigns/${item.campaignId}/content`)
+                }
+              >
+                <span>
+                  <strong>{item.title}</strong>
+                  <small>{item.channel}</small>
+                </span>
+                <span>{campaign?.title ?? "Campaign"}</span>
+                <span>
+                  <Badge value={item.state} />
+                </span>
+                <span>{date(item.scheduledAt)}</span>
+              </button>
+            );
+          })}
+          {!content.length && channel !== "paid" && (
+            <Empty
+              icon={iconMap[config.icon]}
+              title={`No ${config.noun.toLowerCase()} yet`}
+              text="Choose a template to create your first coordinated campaign."
+              action={
+                <button
+                  className="button primary"
+                  onClick={() => navigate(`/app/campaigns/new/${channel}`)}
+                >
+                  Choose a template
+                </button>
+              }
+            />
+          )}
+        </section>
+      )}
+
+      {tab === "templates" && (
+        <section className="simple-template-grid" role="tabpanel">
+          {templates.slice(0, 6).map((template) => (
+            <button
+              className="card simple-template-card"
+              key={template.id}
+              onClick={() => navigate(`/app/campaigns/new/${channel}`)}
+            >
+              <span>{template.occasion}</span>
+              <h3>{template.name}</h3>
+              <p>{template.description}</p>
+              <dl>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>{template.durationDays} days</dd>
+                </div>
+                <div>
+                  <dt>Assets</dt>
+                  <dd>{template.assets.length}</dd>
+                </div>
+              </dl>
+              <small>{template.channels.join(" · ")}</small>
+            </button>
+          ))}
+        </section>
+      )}
+
+      {tab === "results" && (
+        <section className="channel-results" role="tabpanel">
+          <div className="today-metrics">
             <div>
               <span>Impressions</span>
               <strong>{compact(totals.impressions)}</strong>
-              <small className="trend-up">↑ 18.4%</small>
+              <small>Across {content.length} items</small>
             </div>
             <div>
               <span>Clicks</span>
               <strong>{compact(totals.clicks)}</strong>
-              <small className="trend-up">↑ 12.1%</small>
+              <small>
+                {totals.impressions
+                  ? `${((totals.clicks / totals.impressions) * 100).toFixed(1)}% rate`
+                  : "No activity yet"}
+              </small>
             </div>
             <div>
-              <span>Leads</span>
-              <strong>{compact(totals.leads)}</strong>
-              <small className="trend-up">↑ 9.8%</small>
-            </div>
-            <div>
-              <span>Cost / result</span>
-              <strong>
-                {money(
-                  totals.spend / Math.max(totals.leads, 1),
-                  state.workspace.currency,
-                )}
-              </strong>
-              <small className="trend-up">↓ 6.3%</small>
+              <span>Conversions</span>
+              <strong>{compact(totals.conversions)}</strong>
+              <small>Attributed results</small>
             </div>
           </div>
-          <div className="chart-wrap">
-            <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={filtered}>
-                <defs>
-                  <linearGradient id="growthArea" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0f766e" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#0f766e" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  vertical={false}
-                  stroke="#e6ebe9"
-                />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(value) =>
-                    date(value, { month: "short", day: "numeric" })
-                  }
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fill: "#7b8784", fontSize: 11 }}
-                />
-                <YAxis hide />
-                <Tooltip
-                  contentStyle={{
-                    border: "1px solid #dfe6e3",
-                    borderRadius: 10,
-                    boxShadow: "0 10px 30px rgba(25,50,45,.08)",
-                  }}
-                  labelFormatter={(value) =>
-                    date(String(value), { month: "short", day: "numeric" })
-                  }
-                />
-                <Area
-                  type="monotone"
-                  dataKey="impressions"
-                  stroke="#0f766e"
-                  strokeWidth={2.4}
-                  fill="url(#growthArea)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </section>
-      <div className="dashboard-grid lower-grid">
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <span className="eyebrow">Needs attention</span>
-              <h2>Operational signals</h2>
-            </div>
-            <span className="count-pill">2</span>
-          </div>
-          <div className="signal-list">
-            <button onClick={() => navigate("/app/integrations")}>
-              <span className="signal-icon amber">
-                <HeartPulse />
-              </span>
-              <span>
-                <strong>Klaviyo connection degraded</strong>
-                <small>Rate limit interrupted the last metric import</small>
-              </span>
-              <Badge value="DEGRADED" />
-            </button>
-            <button onClick={() => navigate("/app/syncs")}>
-              <span className="signal-icon red">
-                <AlertTriangle />
-              </span>
-              <span>
-                <strong>Trial profiles sync failed</strong>
-                <small>4,012 records are ready to retry</small>
-              </span>
-              <Badge value="FAILED" />
-            </button>
-          </div>
-        </section>
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <span className="eyebrow">Recent activity</span>
-              <h2>What changed</h2>
-            </div>
+          <div className="card result-explainer">
+            <h2>What changed</h2>
+            <p>
+              Results are derived from the campaigns already using this channel.
+              No duplicate records or separate reporting setup is required.
+            </p>
             <button
               className="text-button"
-              onClick={() => navigate("/app/audit-log")}
+              onClick={() => navigate("/app/insights")}
             >
-              See all
+              View cross-channel insights <ArrowRight />
             </button>
           </div>
-          <div className="activity-list">
-            {state.audits.slice(0, 5).map((item) => (
-              <div key={item.id}>
-                <span className="activity-node" />
-                <span>
-                  <strong>{human(item.action)}</strong>
-                  <small>{item.detail}</small>
-                </span>
-                <time>{date(item.createdAt)}</time>
-              </div>
-            ))}
-          </div>
         </section>
-      </div>
+      )}
     </div>
   );
 }
@@ -2163,127 +2324,128 @@ function Campaigns({
   state: AppState;
   navigate: (path: string) => void;
 }) {
-  const [view, setView] = useState<"grid" | "table">("grid");
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState<
+    "All" | "Active" | "Drafts" | "Completed"
+  >("All");
+  const [channel, setChannel] = useState<ChannelKey | "all">("all");
+  const matchesStatus = (campaign: AppState["campaigns"][number]) => {
+    if (filter === "All") return true;
+    if (filter === "Drafts") return campaign.state === "DRAFT";
+    if (filter === "Completed")
+      return ["COMPLETED", "ARCHIVED"].includes(campaign.state);
+    return [
+      "LIVE",
+      "SCHEDULED",
+      "READY_FOR_REVIEW",
+      "AWAITING_APPROVAL",
+    ].includes(campaign.state);
+  };
   const items = state.campaigns.filter(
-    (campaign) => filter === "All" || campaign.state === filter,
+    (campaign) =>
+      matchesStatus(campaign) &&
+      (channel === "all" ||
+        campaign.channels.some((item) => classifyChannel(item) === channel)),
   );
+
   return (
-    <div className="page">
+    <div className="page campaigns-simple-page">
       <PageHeader
-        eyebrow="Create"
         title="Campaigns"
-        description="Plan and operate coordinated, brand-aware programs across every connected channel."
+        description="Plan, review, schedule, and measure coordinated marketing work."
         actions={
-          <>
-            <button
-              className="button secondary"
-              onClick={() => navigate("/app/campaigns/templates")}
-            >
-              <Library /> Browse templates
-            </button>
-            <button
-              className="button primary"
-              onClick={() => navigate("/app/campaigns/new")}
-            >
-              <Sparkles /> Create campaign
-            </button>
-          </>
+          <button
+            className="button primary"
+            onClick={() => navigate("/app/campaigns/new")}
+          >
+            <Plus /> New campaign
+          </button>
         }
       />
-      <div className="toolbar">
-        <div className="filter-pills">
-          {["All", "LIVE", "AWAITING_APPROVAL", "SCHEDULED", "DRAFT"].map(
-            (item) => (
-              <button
-                className={filter === item ? "active" : ""}
-                onClick={() => setFilter(item)}
-                key={item}
-              >
-                {human(item)}
-              </button>
-            ),
-          )}
+      <div className="campaign-filter-row">
+        <div className="segmented" aria-label="Campaign status">
+          {(["All", "Active", "Drafts", "Completed"] as const).map((item) => (
+            <button
+              key={item}
+              className={filter === item ? "active" : ""}
+              onClick={() => setFilter(item)}
+            >
+              {item}
+            </button>
+          ))}
         </div>
-        <div className="view-toggle">
+        <div className="channel-filter-chips" aria-label="Campaign channel">
           <button
-            className={view === "grid" ? "active" : ""}
-            onClick={() => setView("grid")}
+            className={channel === "all" ? "active" : ""}
+            onClick={() => setChannel("all")}
           >
-            <LayoutGrid />
+            All channels
           </button>
-          <button
-            className={view === "table" ? "active" : ""}
-            onClick={() => setView("table")}
-          >
-            <Menu />
-          </button>
+          {channelKeys.map((key) => (
+            <button
+              className={channel === key ? "active" : ""}
+              key={key}
+              onClick={() => setChannel(key)}
+            >
+              {channelWorkspaces[key].label}
+            </button>
+          ))}
         </div>
       </div>
-      <div className={view === "grid" ? "campaign-grid" : "campaign-list"}>
+
+      <section className="card campaign-comfortable-list">
         {items.map((campaign) => (
           <button
-            className="campaign-card card"
             key={campaign.id}
-            onClick={() => navigate(`/app/campaigns/${campaign.id}`)}
+            className="campaign-comfortable-row"
+            onClick={() => navigate(`/app/campaigns/${campaign.id}/overview`)}
           >
-            <div className="campaign-card-top">
-              <Badge value={campaign.state} />
+            <span className="campaign-row-main">
+              <strong>{campaign.title}</strong>
+              <small>{campaign.summary}</small>
+              <span>{campaign.channels.join(" · ")}</span>
+            </span>
+            <span className="campaign-row-date">
+              <small>Dates</small>
+              <strong>
+                {date(campaign.startDate)} – {date(campaign.endDate)}
+              </strong>
+            </span>
+            <span className="campaign-row-progress">
+              <small>Progress</small>
               <span>
-                {date(campaign.startDate)} — {date(campaign.endDate)}
+                <i style={{ width: `${campaign.progress}%` }} />
               </span>
-            </div>
-            <h2>{campaign.title}</h2>
-            <p>{campaign.summary}</p>
-            <div className="channel-row">
-              {campaign.channels.map((channel) => (
-                <span key={channel}>{channel}</span>
-              ))}
-            </div>
-            <div className="campaign-progress">
-              <div>
-                <span>Campaign progress</span>
-                <strong>{campaign.progress}%</strong>
-              </div>
-              <div className="progress-track">
-                <span style={{ width: `${campaign.progress}%` }} />
-              </div>
-            </div>
-            <footer>
-              <span className="avatar small">PS</span>
-              <span>
-                {
-                  state.content.filter(
-                    (item) => item.campaignId === campaign.id,
-                  ).length
-                }{" "}
-                assets
-              </span>
-              <span>
-                {
-                  state.approvals.filter(
-                    (approval) =>
-                      state.content.find(
-                        (item) => item.id === approval.contentId,
-                      )?.campaignId === campaign.id &&
-                      approval.state === "PENDING",
-                  ).length
-                }{" "}
-                approvals
-              </span>
-              <ArrowRight />
-            </footer>
+              <strong>{campaign.progress}%</strong>
+            </span>
+            <Badge value={campaign.state} />
+            <ChevronRight />
           </button>
         ))}
-      </div>
+        {!items.length && (
+          <Empty
+            icon={<Megaphone />}
+            title="No campaigns in this view"
+            text="Adjust the filters or start a new campaign from a template."
+            action={
+              <button
+                className="button primary"
+                onClick={() => navigate("/app/campaigns/new")}
+              >
+                Choose a template
+              </button>
+            }
+          />
+        )}
+      </section>
     </div>
   );
 }
 
-function CampaignTemplateLibrary({
+function CampaignCreator({
   state,
   navigate,
   runAction,
+  initialChannel,
 }: {
   state: AppState;
   navigate: (path: string) => void;
@@ -2291,30 +2453,33 @@ function CampaignTemplateLibrary({
     payload: ActionPayload,
     success: string,
   ) => Promise<ActionResult<T>>;
+  initialChannel?: ChannelKey;
 }) {
   type Template = AppState["templates"][number];
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("All");
+  const [mode, setMode] = useState<"template" | "custom">("template");
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selected, setSelected] = useState<Template | null>(null);
   const [campaignName, setCampaignName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
+  const [budget, setBudget] = useState("");
+  const [timingNote, setTimingNote] = useState("");
+  const [objective, setObjective] = useState("");
+  const [channels, setChannels] = useState<string[]>(
+    initialChannel
+      ? (state.templates.find((template) =>
+          templateMatchesChannel(template, initialChannel),
+        )?.channels ?? [])
+      : ["LinkedIn", "Email", "Meta Ads"],
+  );
+  const [advancedContext, setAdvancedContext] = useState("");
   const [creating, setCreating] = useState(false);
 
-  const categories = [
-    "All",
-    "Seasonal",
-    "Launch",
-    "Demand generation",
-    "Lifecycle",
-  ];
-  const filtered = state.templates.filter((template) => {
-    const matchesCategory =
-      category === "All" || template.category === category;
-    const haystack =
-      `${template.name} ${template.description} ${template.occasion} ${template.channels.join(" ")}`.toLowerCase();
-    return matchesCategory && haystack.includes(search.toLowerCase().trim());
-  });
+  const filteredTemplates = initialChannel
+    ? state.templates.filter((template) =>
+        templateMatchesChannel(template, initialChannel),
+      )
+    : state.templates;
 
   const recommendedStart = (template: Template) => {
     const seasonal: Record<string, string> = {
@@ -2330,7 +2495,7 @@ function CampaignTemplateLibrary({
     return nextWeek.toISOString().slice(0, 10);
   };
 
-  const openTemplate = (template: Template) => {
+  const chooseTemplate = (template: Template) => {
     setSelected(template);
     setCampaignName(
       template.category === "Seasonal"
@@ -2338,15 +2503,17 @@ function CampaignTemplateLibrary({
         : `${template.name} — ${state.brand.name}`,
     );
     setStartDate(recommendedStart(template));
+    setBudget(String(template.recommendedBudget));
     setVariables(
       Object.fromEntries(
         template.variables.map((item) => [item.key, item.defaultValue]),
       ),
     );
+    setStep(2);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const createFromTemplate = async (event: FormEvent) => {
-    event.preventDefault();
+  const createFromTemplate = async () => {
     if (!selected) return;
     setCreating(true);
     const result = await runAction<{ campaignId: string; assetCount: number }>(
@@ -2360,238 +2527,170 @@ function CampaignTemplateLibrary({
       `${selected.name} created with ${selected.assets.length} scheduled drafts`,
     );
     setCreating(false);
-    if (result.ok) navigate(`/app/campaigns/${result.data.campaignId}`);
+    if (result.ok)
+      navigate(`/app/campaigns/${result.data.campaignId}/overview`);
   };
 
+  const createCustom = async () => {
+    if (!objective.trim() || !channels.length) return;
+    setCreating(true);
+    const prompt = advancedContext.trim()
+      ? `${objective.trim()}\n\nAdditional context: ${advancedContext.trim()}`
+      : objective.trim();
+    const result = await runAction<{ campaignId: string }>(
+      { type: "createCampaign", prompt, channels },
+      "Custom campaign created",
+    );
+    setCreating(false);
+    if (result.ok)
+      navigate(`/app/campaigns/${result.data.campaignId}/overview`);
+  };
+
+  const groupedAssets = selected
+    ? channelKeys
+        .map((key) => ({
+          key,
+          config: channelWorkspaces[key],
+          assets: selected.assets.filter(
+            (asset) =>
+              classifyChannel(`${asset.channel} ${asset.type}`) === key,
+          ),
+        }))
+        .filter((group) => group.assets.length)
+    : [];
+
   return (
-    <div className="page template-library-page">
+    <div className="page focused-creator-page">
       <button className="back-link" onClick={() => navigate("/app/campaigns")}>
         <ArrowLeft /> Campaigns
       </button>
       <PageHeader
-        eyebrow="Campaign templates"
-        title="Start with a complete campaign, not a blank page"
-        description="Choose a proven seasonal or evergreen playbook, customize the offer and timing, then review every scheduled asset before it goes live."
-        actions={
-          <button
-            className="button secondary"
-            onClick={() => navigate("/app/campaigns/new")}
-          >
-            <Sparkles /> Create with AI
-          </button>
+        title={mode === "template" ? "Create a campaign" : "Create with AI"}
+        description={
+          mode === "template"
+            ? "Start with a complete playbook and customize only what matters."
+            : "Describe the outcome. GrowthOS will create a coordinated first draft."
         }
       />
 
-      <section className="template-hero card">
-        <div>
-          <span className="eyebrow">
-            <Library /> Ready-to-run playbooks
-          </span>
-          <h2>One choice creates the whole operating plan</h2>
-          <p>
-            Each template includes editable campaign variables, channel-specific
-            copy, relative scheduling, success metrics, and approval-ready
-            drafts.
-          </p>
-        </div>
-        <div className="template-hero-stats">
-          <span>
-            <strong>{state.templates.length}</strong> playbooks
-          </span>
-          <span>
-            <strong>
-              {state.templates.reduce(
-                (sum, item) => sum + item.assets.length,
-                0,
-              )}
-            </strong>{" "}
-            assets
-          </span>
-          <span>
-            <strong>4</strong> seasonal moments
-          </span>
-        </div>
-      </section>
+      {mode === "template" ? (
+        <>
+          <ol className="creator-steps" aria-label="Campaign creation progress">
+            {[
+              ["1", "Choose a template"],
+              ["2", "Customize essentials"],
+              ["3", "Review and create"],
+            ].map(([number, label], index) => (
+              <li
+                key={number}
+                className={
+                  step === index + 1
+                    ? "active"
+                    : step > index + 1
+                      ? "complete"
+                      : ""
+                }
+                aria-current={step === index + 1 ? "step" : undefined}
+              >
+                <span>{step > index + 1 ? <Check /> : number}</span>
+                {label}
+              </li>
+            ))}
+          </ol>
 
-      <div className="template-toolbar">
-        <div className="search-box">
-          <Search />
-          <input
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search templates, occasions, or channels"
-            aria-label="Search campaign templates"
-          />
-        </div>
-        <div className="filter-pills">
-          {categories.map((item) => (
-            <button
-              className={category === item ? "active" : ""}
-              onClick={() => setCategory(item)}
-              key={item}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {filtered.length ? (
-        <div className="template-grid">
-          {filtered.map((template) => (
-            <article className="template-card card" key={template.id}>
-              <div className={`template-art template-art-${template.slug}`}>
-                <span className="template-occasion">{template.occasion}</span>
-                <span className="template-art-mark">
-                  {template.category === "Seasonal" ? (
-                    <CalendarDays />
-                  ) : template.category === "Launch" ? (
-                    <Rocket />
-                  ) : template.category === "Lifecycle" ? (
-                    <RefreshCw />
-                  ) : (
-                    <Megaphone />
-                  )}
-                </span>
-                <small>{template.badge}</small>
-              </div>
-              <div className="template-card-body">
-                <header>
-                  <Badge
-                    value={template.featured ? "READY_FOR_REVIEW" : "DRAFT"}
-                  >
-                    {template.featured ? "Featured" : template.category}
-                  </Badge>
-                  <span>{template.durationDays} days</span>
-                </header>
-                <h2>{template.name}</h2>
-                <p>{template.description}</p>
-                <div className="template-bundle-counts">
-                  <span>
-                    <FileText /> {template.assets.length} assets
-                  </span>
-                  <span>
-                    <Layers3 /> {template.channels.length} channels
-                  </span>
-                  <span>
-                    <CircleDollarSign />{" "}
-                    {money(
-                      template.recommendedBudget,
-                      state.workspace.currency,
-                    )}
-                  </span>
-                </div>
-                <div className="channel-row">
-                  {template.channels.map((channel) => (
-                    <span key={channel}>{channel}</span>
-                  ))}
-                </div>
-                <button
-                  className="button primary full"
-                  onClick={() => openTemplate(template)}
-                >
-                  Use template <ArrowRight />
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
-      ) : (
-        <Empty
-          icon={<Search />}
-          title="No matching templates"
-          text="Try another category or a broader search term."
-          action={
-            <button
-              className="button secondary"
-              onClick={() => {
-                setSearch("");
-                setCategory("All");
-              }}
-            >
-              Clear filters
-            </button>
-          }
-        />
-      )}
-
-      <Modal
-        open={Boolean(selected)}
-        onClose={() => setSelected(null)}
-        title={selected?.name ?? "Campaign template"}
-        eyebrow={
-          selected
-            ? `${selected.occasion} · ${selected.assets.length} assets · ${selected.durationDays} days`
-            : undefined
-        }
-        wide
-      >
-        {selected && (
-          <form onSubmit={(event) => void createFromTemplate(event)}>
-            <div className="modal-body template-config-layout">
-              <section className="template-preview-panel">
-                <div
-                  className={`template-art template-art-${selected.slug} large-template-art`}
-                >
-                  <span className="template-occasion">{selected.occasion}</span>
-                  <span className="template-art-mark">
-                    <CalendarDays />
-                  </span>
-                  <small>{selected.badge}</small>
-                </div>
-                <div className="template-preview-copy">
-                  <h3>What this playbook creates</h3>
-                  <p>{selected.description}</p>
-                  <dl>
-                    <div>
-                      <dt>Objective</dt>
-                      <dd>{selected.objective}</dd>
-                    </div>
-                    <div>
-                      <dt>Audience</dt>
-                      <dd>{selected.audience}</dd>
-                    </div>
-                    <div>
-                      <dt>Recommended media</dt>
-                      <dd>
-                        {money(
-                          selected.recommendedBudget,
-                          state.workspace.currency,
-                        )}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-                <div className="template-asset-timeline">
-                  <span className="eyebrow">Included schedule</span>
-                  {selected.assets.map((item, index) => (
-                    <div key={`${item.channel}-${item.type}-${index}`}>
-                      <i>
-                        {item.dayOffset === 0 ? "Day 1" : `+${item.dayOffset}d`}
-                      </i>
-                      <span className="channel-icon">
-                        {initials(item.channel)}
-                      </span>
-                      <span>
-                        <strong>{item.title}</strong>
-                        <small>
-                          {item.channel} · {item.type}
-                        </small>
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </section>
-              <section className="template-variable-panel">
+          {step === 1 && (
+            <section className="creator-step-panel">
+              <div className="section-heading">
                 <div>
-                  <span className="eyebrow">Customize campaign</span>
-                  <h3>Make the playbook yours</h3>
+                  <h2>Choose a template</h2>
                   <p>
-                    These values are applied across every asset. All content
-                    remains editable after creation.
+                    {initialChannel
+                      ? `Showing templates for ${channelWorkspaces[initialChannel].label}.`
+                      : "Each template creates a coordinated bundle you can edit before publishing."}
                   </p>
                 </div>
-                <label>
+                {initialChannel && (
+                  <button
+                    className="text-button"
+                    onClick={() => navigate("/app/campaigns/new")}
+                  >
+                    Show all templates
+                  </button>
+                )}
+              </div>
+              <div className="focused-template-grid">
+                {filteredTemplates.map((template) => (
+                  <article
+                    className="card focused-template-card"
+                    key={template.id}
+                  >
+                    <div>
+                      <span className="template-outcome">
+                        {template.occasion}
+                      </span>
+                      <h3>{template.name}</h3>
+                      <p>{template.description}</p>
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Duration</dt>
+                        <dd>{template.durationDays} days</dd>
+                      </div>
+                      <div>
+                        <dt>Assets</dt>
+                        <dd>{template.assets.length}</dd>
+                      </div>
+                      <div>
+                        <dt>Channels</dt>
+                        <dd>{template.channels.length}</dd>
+                      </div>
+                    </dl>
+                    <small>{template.channels.join(" · ")}</small>
+                    <button
+                      className="button secondary full"
+                      onClick={() => chooseTemplate(template)}
+                    >
+                      Use {template.name}
+                    </button>
+                  </article>
+                ))}
+              </div>
+              <button
+                className="custom-ai-option"
+                onClick={() => setMode("custom")}
+              >
+                <Sparkles />
+                <span>
+                  <strong>Create a custom campaign with AI</strong>
+                  <small>
+                    Start from one objective when a template is not the right
+                    fit.
+                  </small>
+                </span>
+                <ArrowRight />
+              </button>
+            </section>
+          )}
+
+          {step === 2 && selected && (
+            <form
+              className="card creator-step-panel essentials-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                setStep(3);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              <div className="section-heading">
+                <div>
+                  <h2>Customize essentials</h2>
+                  <p>
+                    {selected.name} · {selected.assets.length} editable assets
+                  </p>
+                </div>
+              </div>
+              <div className="form-grid">
+                <label className="span-2">
                   Campaign name
                   <input
                     required
@@ -2600,14 +2699,16 @@ function CampaignTemplateLibrary({
                   />
                 </label>
                 <label>
-                  Campaign start date
+                  Start date
                   <input
                     required
                     type="date"
                     value={startDate}
                     onChange={(event) => setStartDate(event.target.value)}
                   />
-                  <small>Every asset is scheduled relative to this date.</small>
+                  <small>
+                    Asset dates are scheduled relative to this date.
+                  </small>
                 </label>
                 {selected.variables.map((item) => (
                   <label key={item.key}>
@@ -2632,406 +2733,196 @@ function CampaignTemplateLibrary({
                     <small>{item.help}</small>
                   </label>
                 ))}
-                <div className="template-readiness">
-                  <CheckCircle2 />
-                  <span>
-                    <strong>
-                      {selected.assets.length} editable drafts ready
-                    </strong>
-                    <small>
-                      Nothing publishes until your normal approval flow is
-                      complete.
-                    </small>
-                  </span>
-                </div>
-              </section>
-            </div>
-            <footer className="modal-footer">
-              <button
-                type="button"
-                className="button ghost"
-                onClick={() => setSelected(null)}
-              >
-                Cancel
-              </button>
-              <button
-                className="button primary"
-                type="submit"
-                disabled={creating}
-              >
-                {creating ? <Loader2 className="spin" /> : <Sparkles />}
-                {creating
-                  ? "Building campaign…"
-                  : `Create ${selected.assets.length}-asset campaign`}
-              </button>
-            </footer>
-          </form>
-        )}
-      </Modal>
-    </div>
-  );
-}
-
-function CampaignCreator({
-  state,
-  navigate,
-  runAction,
-}: {
-  state: AppState;
-  navigate: (path: string) => void;
-  runAction: <T>(
-    payload: ActionPayload,
-    success: string,
-  ) => Promise<ActionResult<T>>;
-}) {
-  const [mode, setMode] = useState<"conversation" | "structured">(
-    "conversation",
-  );
-  const [prompt, setPrompt] = useState("");
-  const [channels, setChannels] = useState(["LinkedIn", "Email", "Meta Ads"]);
-  const [creating, setCreating] = useState(false);
-  const [step, setStep] = useState(1);
-  const available = [
-    "LinkedIn",
-    "Email",
-    "Meta Ads",
-    "Google Ads",
-    "Instagram",
-    "Blog",
-  ];
-  const generate = async () => {
-    const finalPrompt =
-      prompt ||
-      "Create a three-week campaign for our analytics activation feature with the goal of demo bookings";
-    setCreating(true);
-    const result = await runAction<{ campaignId: string }>(
-      { type: "createCampaign", prompt: finalPrompt, channels },
-      "Campaign plan and content generated",
-    );
-    setCreating(false);
-    if (result.ok) navigate(`/app/campaigns/${result.data.campaignId}`);
-  };
-  return (
-    <div className="page creator-page">
-      <button className="back-link" onClick={() => navigate("/app/campaigns")}>
-        <ArrowLeft /> Campaigns
-      </button>
-      <PageHeader
-        eyebrow="New campaign"
-        title="Turn an objective into coordinated execution"
-        description="GrowthOS plans the campaign, drafts each channel, and keeps approval and activation in one workflow."
-        actions={
-          <button
-            className="button secondary"
-            onClick={() => navigate("/app/campaigns/templates")}
-          >
-            <Library /> Start from a template
-          </button>
-        }
-      />
-      <div className="mode-switch">
-        <button
-          className={mode === "conversation" ? "active" : ""}
-          onClick={() => setMode("conversation")}
-        >
-          <MessageSquareText />
-          <span>
-            <strong>Conversational brief</strong>
-            <small>Describe the outcome in your own words</small>
-          </span>
-        </button>
-        <button
-          className={mode === "structured" ? "active" : ""}
-          onClick={() => setMode("structured")}
-        >
-          <ListFilter />
-          <span>
-            <strong>Structured wizard</strong>
-            <small>Build the campaign step by step</small>
-          </span>
-        </button>
-      </div>
-      {mode === "conversation" ? (
-        <section className="creator-panel">
-          <div className="creator-prompt">
-            <div className="ai-orb large">
-              <Sparkles />
-            </div>
-            <span className="eyebrow">Campaign strategist</span>
-            <h2>What should this campaign achieve?</h2>
-            <textarea
-              rows={7}
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Create a three-week campaign for our new analytics feature. Target small SaaS teams. The goal is demo bookings…"
-            />
-            <div className="prompt-suggestions">
-              {[
-                "Launch the activation feature",
-                "Re-engage dormant trials",
-                "Promote the benchmark report",
-              ].map((item) => (
-                <button
-                  onClick={() =>
-                    setPrompt(
-                      `Create a three-week coordinated campaign to ${item.toLowerCase()}. Target small and mid-sized SaaS teams. The primary goal is qualified demo bookings.`,
-                    )
-                  }
-                  key={item}
-                >
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-          <aside className="creator-context">
-            <span className="eyebrow">Campaign context</span>
-            <div className="context-item">
-              <Palette />
-              <span>
-                <strong>{state.brand.name}</strong>
-                <small>{state.brand.voice.tone} voice</small>
-              </span>
-              <CheckCircle2 />
-            </div>
-            <h3>Channels</h3>
-            <div className="channel-picker">
-              {available.map((channel) => {
-                const connected =
-                  channel === "Email"
-                    ? state.connections.some(
-                        (item) => item.definitionId === "int-klaviyo",
-                      )
-                    : channel === "Google Ads"
-                      ? state.connections.some(
-                          (item) => item.definitionId === "int-google-ads",
-                        )
-                      : true;
-                return (
-                  <button
-                    className={channels.includes(channel) ? "selected" : ""}
-                    onClick={() =>
-                      setChannels((value) =>
-                        value.includes(channel)
-                          ? value.filter((item) => item !== channel)
-                          : [...value, channel],
-                      )
-                    }
-                    key={channel}
-                  >
-                    <span>{channels.includes(channel) && <Check />}</span>
-                    {channel}
-                    {!connected && <small>Connect</small>}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="generation-summary">
-              <Sparkles />
-              <span>
-                <strong>{channels.length * 2 + 1} coordinated assets</strong>
-                <small>Plan, copy, variants, and success metrics</small>
-              </span>
-            </div>
-            <button
-              className="button primary full large-button"
-              onClick={() => void generate()}
-              disabled={creating || !prompt.trim()}
-            >
-              {creating ? <Loader2 className="spin" /> : <Sparkles />}
-              {creating ? "Building campaign…" : "Generate campaign"}
-            </button>
-          </aside>
-        </section>
-      ) : (
-        <section className="creator-panel structured">
-          <div className="wizard-side">
-            {[
-              "Goal",
-              "Audience",
-              "Channels",
-              "Schedule",
-              "Context",
-              "Generate",
-            ].map((item, index) => (
-              <button
-                className={
-                  step === index + 1
-                    ? "active"
-                    : step > index + 1
-                      ? "complete"
-                      : ""
-                }
-                onClick={() => setStep(index + 1)}
-                key={item}
-              >
-                <i>{step > index + 1 ? <Check /> : index + 1}</i>
-                <span>{item}</span>
-              </button>
-            ))}
-          </div>
-          <div className="structured-content">
-            <span className="eyebrow">Step {step} of 6</span>
-            <h2>
-              {
-                [
-                  "Define the campaign goal",
-                  "Choose the audience",
-                  "Select connected channels",
-                  "Set the operating window",
-                  "Ground the campaign",
-                  "Review and generate",
-                ][step - 1]
-              }
-            </h2>
-            {step === 1 && (
-              <div className="form-grid">
-                <label className="span-2">
-                  Campaign objective
-                  <textarea
-                    rows={4}
-                    value={prompt}
-                    onChange={(event) => setPrompt(event.target.value)}
-                    placeholder="Increase qualified demo bookings…"
-                  />
-                </label>
-                <label>
-                  Primary metric
-                  <select>
-                    <option>Demo bookings</option>
-                    <option>Qualified leads</option>
-                    <option>Revenue</option>
-                  </select>
-                </label>
-                <label>
-                  Offer
-                  <input placeholder="Growth signal review" />
-                </label>
               </div>
-            )}
-            {step === 2 && (
-              <div className="form-grid">
-                <label className="span-2">
-                  Audience description
-                  <textarea
-                    rows={4}
-                    defaultValue="Growth leaders at SaaS companies with 20–250 employees"
-                  />
-                </label>
-                <label>
-                  Countries
-                  <input defaultValue="Canada, United States" />
-                </label>
-                <label>
-                  Customer stage
-                  <select>
-                    <option>Prospect and trial</option>
-                    <option>Customer</option>
-                  </select>
-                </label>
-              </div>
-            )}
-            {step === 3 && (
-              <div className="channel-picker large">
-                {available.map((channel) => (
-                  <button
-                    className={channels.includes(channel) ? "selected" : ""}
-                    onClick={() =>
-                      setChannels((value) =>
-                        value.includes(channel)
-                          ? value.filter((item) => item !== channel)
-                          : [...value, channel],
-                      )
-                    }
-                    key={channel}
-                  >
-                    <span>{channels.includes(channel) && <Check />}</span>
-                    {channel}
-                  </button>
-                ))}
-              </div>
-            )}
-            {step === 4 && (
-              <div className="form-grid">
-                <label>
-                  Start date
-                  <input type="date" defaultValue="2026-08-24" />
-                </label>
-                <label>
-                  End date
-                  <input type="date" defaultValue="2026-09-14" />
-                </label>
-                <label>
-                  Review buffer
-                  <select>
-                    <option>48 hours</option>
-                    <option>24 hours</option>
-                  </select>
-                </label>
-                <label>
-                  Time zone
-                  <select>
-                    <option>America/Toronto</option>
-                  </select>
-                </label>
-              </div>
-            )}
-            {step === 5 && (
-              <div className="context-select-grid">
-                {state.sources.map((source) => (
-                  <label key={source.id}>
+              <details className="advanced-disclosure">
+                <summary>Advanced</summary>
+                <div className="form-grid">
+                  <label>
+                    Planning budget
                     <input
-                      type="checkbox"
-                      defaultChecked={source.id !== "source-3"}
+                      type="number"
+                      min="0"
+                      value={budget}
+                      onChange={(event) => setBudget(event.target.value)}
                     />
-                    <FileText />
-                    <span>
-                      <strong>{source.name}</strong>
-                      <small>{source.kind}</small>
-                    </span>
+                    <small>This does not activate paid spend.</small>
                   </label>
+                  <label>
+                    Timing notes
+                    <input
+                      value={timingNote}
+                      onChange={(event) => setTimingNote(event.target.value)}
+                      placeholder="Optional timing overrides"
+                    />
+                  </label>
+                </div>
+              </details>
+              <footer className="focused-creator-footer">
+                <button
+                  type="button"
+                  className="button ghost"
+                  onClick={() => setStep(1)}
+                >
+                  <ArrowLeft /> Back
+                </button>
+                <button className="button primary" type="submit">
+                  Review campaign <ArrowRight />
+                </button>
+              </footer>
+            </form>
+          )}
+
+          {step === 3 && selected && (
+            <section className="card creator-step-panel review-bundle">
+              <div className="section-heading">
+                <div>
+                  <h2>Review and create</h2>
+                  <p>
+                    Confirm the bundle. Every asset remains editable and follows
+                    the existing approval workflow.
+                  </p>
+                </div>
+                <Badge value="DRAFT" />
+              </div>
+              <div className="review-summary">
+                <div>
+                  <span>Campaign</span>
+                  <strong>{campaignName}</strong>
+                </div>
+                <div>
+                  <span>Starts</span>
+                  <strong>{date(startDate)}</strong>
+                </div>
+                <div>
+                  <span>Total assets</span>
+                  <strong>{selected.assets.length}</strong>
+                </div>
+              </div>
+              <div className="review-channel-groups">
+                {groupedAssets.map((group) => (
+                  <details key={group.key}>
+                    <summary>
+                      <span>
+                        {iconMap[group.config.icon]}
+                        <strong>{group.config.label}</strong>
+                      </span>
+                      <span>
+                        {group.assets.length} {group.config.noun.toLowerCase()}
+                        <ChevronDown />
+                      </span>
+                    </summary>
+                    <div>
+                      {group.assets.map((asset) => (
+                        <article key={`${asset.channel}-${asset.title}`}>
+                          <span>{asset.channel}</span>
+                          <strong>{asset.title}</strong>
+                          <small>
+                            Day {asset.dayOffset + 1} · {asset.type}
+                          </small>
+                        </article>
+                      ))}
+                    </div>
+                  </details>
                 ))}
               </div>
-            )}
-            {step === 6 && (
-              <div className="review-generation">
-                <div className="success-orb violet">
-                  <Sparkles />
-                </div>
-                <h3>Ready to create a coordinated campaign</h3>
+              <details className="advanced-disclosure review-details">
+                <summary>Campaign details</summary>
                 <p>
-                  GrowthOS will generate a plan, {channels.length} channel
-                  strategies, and {channels.length * 2 + 1} editable content
-                  assets using the current Brand Kit.
+                  Recommended planning budget:{" "}
+                  {money(Number(budget || 0), state.workspace.currency)}
                 </p>
-                <button
-                  className="button primary large-button"
-                  onClick={() => void generate()}
-                  disabled={creating}
-                >
-                  {creating ? <Loader2 className="spin" /> : <Sparkles />}{" "}
-                  Generate campaign
+                {timingNote && <p>Timing note: {timingNote}</p>}
+                <p>Audience: {selected.audience}</p>
+              </details>
+              <footer className="focused-creator-footer">
+                <button className="button ghost" onClick={() => setStep(2)}>
+                  <ArrowLeft /> Back
                 </button>
-              </div>
-            )}
-            <footer className="wizard-footer">
-              <button
-                className="button ghost"
-                disabled={step === 1}
-                onClick={() => setStep(step - 1)}
-              >
-                <ArrowLeft /> Back
-              </button>
-              {step < 6 && (
                 <button
                   className="button primary"
-                  onClick={() => setStep(step + 1)}
+                  onClick={() => void createFromTemplate()}
+                  disabled={creating}
                 >
-                  Continue <ArrowRight />
+                  {creating ? <Loader2 className="spin" /> : <Check />}
+                  {creating ? "Creating campaign…" : "Create campaign"}
                 </button>
-              )}
-            </footer>
+              </footer>
+            </section>
+          )}
+        </>
+      ) : (
+        <section className="card custom-ai-creator">
+          <button className="back-link" onClick={() => setMode("template")}>
+            <ArrowLeft /> Back to templates
+          </button>
+          <div>
+            <h2>What should this campaign achieve?</h2>
+            <p>Use one clear outcome. You can refine every draft afterward.</p>
           </div>
+          <label>
+            Campaign objective
+            <textarea
+              rows={6}
+              value={objective}
+              onChange={(event) => setObjective(event.target.value)}
+              placeholder="Increase qualified demo bookings for our analytics activation feature…"
+            />
+          </label>
+          <fieldset className="custom-channel-picker">
+            <legend>Channels</legend>
+            {[
+              "LinkedIn",
+              "Instagram",
+              "Email",
+              "SMS",
+              "Meta Ads",
+              "Google Ads",
+              "Blog",
+            ].map((channelName) => (
+              <label key={channelName}>
+                <input
+                  type="checkbox"
+                  checked={channels.includes(channelName)}
+                  onChange={() =>
+                    setChannels((value) =>
+                      value.includes(channelName)
+                        ? value.filter((item) => item !== channelName)
+                        : [...value, channelName],
+                    )
+                  }
+                />
+                {channelName}
+              </label>
+            ))}
+          </fieldset>
+          <details className="advanced-disclosure">
+            <summary>Advanced context</summary>
+            <label>
+              Optional context
+              <textarea
+                rows={4}
+                value={advancedContext}
+                onChange={(event) => setAdvancedContext(event.target.value)}
+                placeholder="Audience, offer, timing, or constraints…"
+              />
+            </label>
+          </details>
+          <footer className="focused-creator-footer">
+            <button
+              className="button ghost"
+              onClick={() => setMode("template")}
+            >
+              Cancel
+            </button>
+            <button
+              className="button primary"
+              onClick={() => void createCustom()}
+              disabled={creating || !objective.trim() || !channels.length}
+            >
+              {creating ? <Loader2 className="spin" /> : <Sparkles />}
+              {creating ? "Creating campaign…" : "Create custom campaign"}
+            </button>
+          </footer>
         </section>
       )}
     </div>
@@ -3041,11 +2932,13 @@ function CampaignCreator({
 function CampaignWorkspace({
   state,
   campaignId,
+  activeTab,
   navigate,
   runAction,
 }: {
   state: AppState;
   campaignId: string;
+  activeTab?: string;
   navigate: (path: string) => void;
   runAction: <T>(
     payload: ActionPayload,
@@ -3053,7 +2946,11 @@ function CampaignWorkspace({
   ) => Promise<ActionResult<T>>;
 }) {
   const campaign = state.campaigns.find((item) => item.id === campaignId);
-  const [tab, setTab] = useState("Overview");
+  const tab = campaignTabKeys.includes(
+    activeTab as (typeof campaignTabKeys)[number],
+  )
+    ? (activeTab as (typeof campaignTabKeys)[number])
+    : "overview";
   const [editing, setEditing] = useState<ContentItem | null>(null);
   const [body, setBody] = useState("");
   const [publishTarget, setPublishTarget] = useState<ContentItem | null>(null);
@@ -3061,6 +2958,7 @@ function CampaignWorkspace({
     null,
   );
   const [scheduleValue, setScheduleValue] = useState("");
+
   if (!campaign)
     return (
       <div className="page">
@@ -3079,79 +2977,94 @@ function CampaignWorkspace({
         />
       </div>
     );
+
   const content = state.content.filter(
     (item) => item.campaignId === campaign.id,
   );
   const campaignApprovals = state.approvals.filter((approval) =>
     content.some((item) => item.id === approval.contentId),
   );
+  const latestApprovalFor = (contentId: string) =>
+    campaignApprovals.find((item) => item.contentId === contentId);
+  const totals = content.reduce(
+    (sum, item) => ({
+      impressions: sum.impressions + item.metrics.impressions,
+      clicks: sum.clicks + item.metrics.clicks,
+      conversions: sum.conversions + item.metrics.conversions,
+    }),
+    { impressions: 0, clicks: 0, conversions: 0 },
+  );
   const openEdit = (item: ContentItem) => {
     setEditing(item);
     setBody(item.body);
   };
+  const goToTab = (next: (typeof campaignTabKeys)[number]) =>
+    navigate(campaignTabRoute(campaign.id, next));
+
   return (
-    <div className="page campaign-workspace">
+    <div className="page campaign-workspace campaign-workspace-simple">
       <button className="back-link" onClick={() => navigate("/app/campaigns")}>
         <ArrowLeft /> Campaigns
       </button>
       <PageHeader
-        eyebrow="Campaign workspace"
         title={campaign.title}
         description={campaign.summary}
         actions={
           <>
-            <button className="button secondary">
-              <Pencil /> Edit plan
-            </button>
-            <button className="button secondary">
-              <MoreHorizontal />
-            </button>
-            <button
-              className="button primary"
-              onClick={() => setTab("Content")}
-            >
-              <Sparkles /> Review content
-            </button>
+            {tab !== "content" && (
+              <button
+                className="button primary"
+                onClick={() => goToTab("content")}
+              >
+                Review content
+              </button>
+            )}
+            <details className="page-overflow">
+              <summary
+                className="icon-button"
+                aria-label="More campaign actions"
+              >
+                <MoreHorizontal />
+              </summary>
+              <div>
+                <button onClick={() => goToTab("overview")}>Edit plan</button>
+                <button onClick={() => navigate("/app/audit-log")}>
+                  View activity
+                </button>
+              </div>
+            </details>
           </>
         }
       />
-      <div className="campaign-meta-bar">
+      <div className="campaign-meta-bar quiet-meta">
         <Badge value={campaign.state} />
         <span>
           <CalendarDays />
           {date(campaign.startDate)} — {date(campaign.endDate)}
         </span>
-        <span>
-          <Target />
-          {campaign.objective}
-        </span>
-        <span>
-          <span className="avatar tiny">PS</span> Priya Shah
-        </span>
+        <span>{campaign.channels.join(" · ")}</span>
+        <span>{campaign.progress}% complete</span>
       </div>
-      <div className="tabs-line scroll-tabs">
-        {[
-          "Overview",
-          "Plan",
-          "Content",
-          "Audience",
-          "Destinations",
-          "Calendar",
-          "Approvals",
-          "Insights",
-          "Activity",
-        ].map((item) => (
+
+      <div
+        className="simple-tabs campaign-four-tabs"
+        role="tablist"
+        aria-label="Campaign workspace"
+      >
+        {campaignTabKeys.map((item) => (
           <button
+            role="tab"
+            aria-selected={tab === item}
             className={tab === item ? "active" : ""}
-            onClick={() => setTab(item)}
+            onClick={() => goToTab(item)}
             key={item}
           >
-            {item}
-            {item === "Approvals" &&
-              campaignApprovals.filter(
+            {human(item)}
+            {item === "content" &&
+              campaignApprovals.some(
                 (approval) => approval.state === "PENDING",
-              ).length > 0 && (
-                <span>
+              ) && (
+                <span className="tab-count">
                   {
                     campaignApprovals.filter(
                       (approval) => approval.state === "PENDING",
@@ -3162,405 +3075,275 @@ function CampaignWorkspace({
           </button>
         ))}
       </div>
-      {tab === "Overview" && (
-        <div>
-          <div className="campaign-metrics">
+
+      {tab === "overview" && (
+        <div className="campaign-overview-simple" role="tabpanel">
+          <section className="campaign-metrics compact-metrics">
             <MetricCard
               label="Progress"
               value={`${campaign.progress}%`}
-              detail="On track"
+              detail="Campaign completion"
               icon={<Gauge />}
             />
             <MetricCard
               label="Content"
-              value={`${content.length}`}
+              value={String(content.length)}
               detail={`${content.filter((item) => item.state === "PUBLISHED").length} published`}
               icon={<FileText />}
               toneName="violet"
             />
             <MetricCard
               label="Approvals"
-              value={`${campaignApprovals.filter((item) => item.state === "PENDING").length}`}
-              detail="Awaiting review"
+              value={String(
+                campaignApprovals.filter((item) => item.state === "PENDING")
+                  .length,
+              )}
+              detail="Awaiting decision"
               icon={<ShieldCheck />}
               toneName="amber"
             />
-            <MetricCard
-              label="Conversions"
-              value={`${content.reduce((sum, item) => sum + item.metrics.conversions, 0)}`}
-              detail="From live content"
-              icon={<MousePointerClick />}
-            />
-          </div>
-          <div className="two-column">
-            <section className="card">
-              <div className="card-head">
+          </section>
+          <div className="overview-columns">
+            <section className="card overview-detail-card">
+              <h2>Campaign brief</h2>
+              <dl className="definition-list">
                 <div>
-                  <span className="eyebrow">Campaign brief</span>
-                  <h2>What we are creating</h2>
-                </div>
-                <button className="icon-button">
-                  <Pencil />
-                </button>
-              </div>
-              <div className="brief-grid">
-                <div>
-                  <span>Objective</span>
-                  <strong>{campaign.objective}</strong>
+                  <dt>Objective</dt>
+                  <dd>{campaign.objective}</dd>
                 </div>
                 <div>
-                  <span>Audience</span>
-                  <strong>{campaign.audience}</strong>
+                  <dt>Audience</dt>
+                  <dd>{campaign.audience}</dd>
                 </div>
-                <div>
-                  <span>Offer</span>
-                  <strong>{campaign.offer}</strong>
-                </div>
-                <div>
-                  <span>Channels</span>
-                  <div className="channel-row">
-                    {campaign.channels.map((channel) => (
-                      <em key={channel}>{channel}</em>
-                    ))}
+                {campaign.offer && (
+                  <div>
+                    <dt>Offer</dt>
+                    <dd>{campaign.offer}</dd>
                   </div>
-                </div>
-              </div>
+                )}
+              </dl>
             </section>
-            <section className="card">
-              <div className="card-head">
-                <div>
-                  <span className="eyebrow">Execution</span>
-                  <h2>Channel readiness</h2>
-                </div>
-              </div>
-              <div className="readiness-list">
-                {campaign.channels.map((channel) => {
-                  const count = content.filter(
-                    (item) => item.channel === channel,
-                  ).length;
-                  return (
-                    <div key={channel}>
-                      <span className="channel-icon">{initials(channel)}</span>
-                      <span>
-                        <strong>{channel}</strong>
-                        <small>
-                          {count} content item{count === 1 ? "" : "s"}
-                        </small>
-                      </span>
-                      <Badge
-                        value={
-                          channel === "Google Ads" &&
-                          !state.connections.some(
-                            (item) => item.definitionId === "int-google-ads",
-                          )
-                            ? "DEGRADED"
-                            : "CONNECTED"
-                        }
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-          <section className="card content-preview-section">
-            <div className="card-head">
-              <div>
-                <span className="eyebrow">Latest assets</span>
-                <h2>Content in motion</h2>
-              </div>
-              <button className="text-button" onClick={() => setTab("Content")}>
-                View all <ArrowRight />
-              </button>
-            </div>
-            <div className="content-preview-grid">
-              {content.slice(0, 3).map((item) => (
-                <ContentPreview
-                  key={item.id}
-                  item={item}
-                  onEdit={() => openEdit(item)}
-                />
-              ))}
-            </div>
-          </section>
-        </div>
-      )}
-      {tab === "Plan" && (
-        <div className="plan-layout">
-          <section className="card">
-            <div className="card-head">
-              <div>
-                <span className="eyebrow">Strategy</span>
-                <h2>Campaign plan</h2>
-              </div>
-              <button className="button secondary">
-                <Pencil /> Edit plan
-              </button>
-            </div>
-            <div className="plan-sections">
-              <div>
-                <span>Goal</span>
-                <h3>{campaign.objective}</h3>
-                <p>{campaign.summary}</p>
-              </div>
-              <div>
+            <section className="card overview-detail-card">
+              <h2>Plan</h2>
+              <div className="simple-plan-block">
                 <span>Topics</span>
-                <div className="topic-list">
-                  {campaign.plan.topics.map((topic) => (
-                    <strong key={topic}>{topic}</strong>
+                <ul>
+                  {campaign.plan.topics.map((item) => (
+                    <li key={item}>{item}</li>
                   ))}
-                </div>
+                </ul>
               </div>
+              <div className="simple-plan-block">
+                <span>Success measures</span>
+                <ul>
+                  {campaign.plan.successMetrics.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            </section>
+          </div>
+          <section className="card overview-detail-card">
+            <div className="section-heading">
               <div>
-                <span>Success metrics</span>
-                {campaign.plan.successMetrics.map((metric) => (
-                  <p className="check-line" key={metric}>
-                    <CheckCircle2 />
-                    {metric}
-                  </p>
-                ))}
+                <h2>Channels and destinations</h2>
+                <p>Campaign work stays connected to the existing providers.</p>
               </div>
-              <div>
-                <span>Source context</span>
-                {state.sources.slice(0, 2).map((source) => (
-                  <p className="check-line" key={source.id}>
-                    <FileText />
-                    {source.name}
-                  </p>
-                ))}
-              </div>
+              <button
+                className="text-button"
+                onClick={() => navigate("/app/integrations")}
+              >
+                Manage connections
+              </button>
+            </div>
+            <div className="destination-summary">
+              {campaign.channels.map((channelName) => {
+                const connected = state.connections.some((connection) => {
+                  const definition = state.definitions.find(
+                    (item) => item.id === connection.definitionId,
+                  );
+                  return (
+                    connection.state === "CONNECTED" &&
+                    definition?.name
+                      .toLowerCase()
+                      .includes(channelName.split(" ")[0].toLowerCase())
+                  );
+                });
+                return (
+                  <div key={channelName}>
+                    <span className="channel-icon">
+                      {initials(channelName)}
+                    </span>
+                    <span>
+                      <strong>{channelName}</strong>
+                      <small>
+                        {connected ? "Connected" : "Review connection"}
+                      </small>
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </section>
-          <aside>
-            <section className="card">
-              <span className="eyebrow">Assumptions</span>
-              {campaign.plan.assumptions.map((item) => (
-                <p className="numbered-note" key={item}>
-                  {item}
-                </p>
-              ))}
-            </section>
-            <section className="card">
-              <span className="eyebrow">Risks</span>
-              {campaign.plan.risks.map((item) => (
-                <p className="risk-note" key={item}>
-                  <AlertTriangle />
-                  {item}
-                </p>
-              ))}
-            </section>
-          </aside>
         </div>
       )}
-      {tab === "Content" && (
-        <section>
-          <div className="library-toolbar">
+
+      {tab === "content" && (
+        <section className="campaign-content-simple" role="tabpanel">
+          <div className="section-heading">
             <div>
-              <h2>{content.length} campaign assets</h2>
-              <p>Every edit and regeneration creates a restorable version.</p>
-            </div>
-            <div>
-              <button className="button secondary">
-                <ListFilter /> Filter
-              </button>
-              <button className="button primary">
-                <Plus /> Add content
-              </button>
+              <h2>{content.length} content items</h2>
+              <p>Approval state is shown with every item.</p>
             </div>
           </div>
-          <div className="content-workspace-grid">
-            {content.map((item) => (
-              <article className="content-work-card card" key={item.id}>
-                <div className="content-channel">
-                  <span className="channel-icon">{initials(item.channel)}</span>
-                  <span>
-                    <strong>{item.channel}</strong>
-                    <small>
-                      {item.type} · v{item.version}
-                    </small>
-                  </span>
-                  <Badge value={item.state} />
-                </div>
-                <div className="content-canvas">
-                  <span className="eyebrow">{item.title}</span>
-                  <p>{item.body}</p>
-                  {item.channel.includes("Ads") && (
-                    <button>{item.title}</button>
-                  )}
-                </div>
-                <div className="content-detail-row">
-                  <span>
-                    <CalendarDays />
-                    {date(item.scheduledAt, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                  {item.externalId && (
-                    <span>
-                      <Link2 />
-                      {item.externalId}
+          <div className="campaign-content-list">
+            {content.map((item) => {
+              const approval = latestApprovalFor(item.id);
+              return (
+                <article
+                  className="card content-comfortable-card"
+                  key={item.id}
+                >
+                  <header>
+                    <span className="channel-icon">
+                      {initials(item.channel)}
                     </span>
-                  )}
-                </div>
-                <footer>
-                  <button onClick={() => openEdit(item)}>
-                    <Pencil /> Edit
-                  </button>
-                  <button
-                    onClick={() =>
-                      void runAction(
-                        { type: "regenerateContent", contentId: item.id },
-                        "New content version generated",
-                      )
-                    }
-                  >
-                    <RefreshCw /> Regenerate
-                  </button>
-                  <button
-                    onClick={() => {
-                      setScheduleTarget(item);
-                      setScheduleValue(
-                        item.scheduledAt?.slice(0, 16) ?? "2026-08-24T14:00",
-                      );
-                    }}
-                  >
-                    <CalendarDays /> Schedule
-                  </button>
-                  {item.state === "DRAFT" && (
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>
+                        {item.channel} · {item.type} · Version {item.version}
+                      </small>
+                    </span>
+                    <div>
+                      {approval && <Badge value={approval.state} />}
+                      <Badge value={item.state} />
+                    </div>
+                  </header>
+                  <p>{item.body}</p>
+                  <div className="content-detail-row">
+                    <span>
+                      <CalendarDays />
+                      {date(item.scheduledAt, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {item.externalId && (
+                      <span>
+                        <Link2 /> {item.externalId}
+                      </span>
+                    )}
+                  </div>
+                  <footer>
+                    <button onClick={() => openEdit(item)}>
+                      <Pencil /> Edit
+                    </button>
                     <button
-                      className="primary-link"
                       onClick={() =>
                         void runAction(
-                          { type: "submitApproval", contentId: item.id },
-                          "Content submitted for approval",
+                          { type: "regenerateContent", contentId: item.id },
+                          "New content version generated",
                         )
                       }
                     >
-                      <Send /> Submit
+                      <RefreshCw /> Regenerate
                     </button>
-                  )}
-                  {["APPROVED", "SCHEDULED", "PUBLISHED"].includes(
-                    item.state,
-                  ) && (
                     <button
-                      className="primary-link"
-                      onClick={() => setPublishTarget(item)}
+                      onClick={() => {
+                        setScheduleTarget(item);
+                        setScheduleValue(
+                          item.scheduledAt?.slice(0, 16) ?? "2026-08-24T14:00",
+                        );
+                      }}
                     >
-                      <Rocket /> Publish
+                      <CalendarDays /> Schedule
                     </button>
-                  )}
-                </footer>
-              </article>
-            ))}
+                    {item.state === "DRAFT" && (
+                      <button
+                        className="primary-link"
+                        onClick={() =>
+                          void runAction(
+                            { type: "submitApproval", contentId: item.id },
+                            "Content submitted for approval",
+                          )
+                        }
+                      >
+                        <Send /> Submit
+                      </button>
+                    )}
+                    {["APPROVED", "SCHEDULED", "PUBLISHED"].includes(
+                      item.state,
+                    ) && (
+                      <button
+                        className="primary-link"
+                        onClick={() => setPublishTarget(item)}
+                      >
+                        <Rocket /> Publish
+                      </button>
+                    )}
+                  </footer>
+                </article>
+              );
+            })}
           </div>
         </section>
       )}
-      {tab === "Audience" && <AudienceBuilder state={state} />}{" "}
-      {tab === "Destinations" && (
-        <div className="destination-grid">
-          {campaign.channels.map((channel) => (
-            <section className="card" key={channel}>
-              <div className="destination-title">
-                <span className="channel-icon large">{initials(channel)}</span>
-                <div>
-                  <h2>{channel}</h2>
-                  <Badge
-                    value={
-                      state.connections.some((connection) =>
-                        state.definitions
-                          .find(
-                            (definition) =>
-                              definition.id === connection.definitionId,
-                          )
-                          ?.name.includes(channel.split(" ")[0]),
-                      )
-                        ? "CONNECTED"
-                        : "DEGRADED"
-                    }
-                  />
-                </div>
-              </div>
-              <div className="detail-list">
-                <div>
-                  <span>Execution</span>
-                  <strong>
-                    {content.filter((item) => item.channel === channel).length}{" "}
-                    planned assets
-                  </strong>
-                </div>
-                <div>
-                  <span>Connected as</span>
-                  <strong>Northstar {channel}</strong>
-                </div>
-                <div>
-                  <span>Approval</span>
-                  <strong>Required</strong>
-                </div>
-                <div>
-                  <span>Launch mode</span>
-                  <strong>
-                    {channel.includes("Ads")
-                      ? "Create paused"
-                      : "Schedule approved"}
-                  </strong>
-                </div>
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-      {tab === "Calendar" && (
-        <CalendarView
-          state={{ ...state, content }}
-          runAction={runAction}
-          embedded
-        />
-      )}{" "}
-      {tab === "Approvals" && (
-        <ApprovalsView
-          state={{ ...state, approvals: campaignApprovals, content }}
-          runAction={runAction}
-          embedded
-        />
-      )}{" "}
-      {tab === "Insights" && (
-        <InsightsView
-          state={state}
-          navigate={navigate}
-          runAction={runAction}
-          embedded
-        />
-      )}{" "}
-      {tab === "Activity" && (
-        <section className="card activity-timeline">
-          {state.audits
-            .filter(
-              (item) =>
-                item.entityId === campaign.id ||
-                content.some((contentItem) => contentItem.id === item.entityId),
-            )
-            .map((item) => (
-              <div key={item.id}>
-                <span className="activity-node" />
-                <span>
-                  <strong>{human(item.action)}</strong>
-                  <small>{item.detail}</small>
-                </span>
-                <time>
-                  {date(item.createdAt, {
-                    month: "short",
-                    day: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </time>
-              </div>
-            ))}
+
+      {tab === "schedule" && (
+        <section role="tabpanel">
+          <CalendarView
+            state={{ ...state, content }}
+            runAction={runAction}
+            embedded
+          />
         </section>
       )}
+
+      {tab === "results" && (
+        <section className="campaign-results-simple" role="tabpanel">
+          <div className="today-metrics">
+            <div>
+              <span>Impressions</span>
+              <strong>{compact(totals.impressions)}</strong>
+              <small>Campaign total</small>
+            </div>
+            <div>
+              <span>Clicks</span>
+              <strong>{compact(totals.clicks)}</strong>
+              <small>
+                {totals.impressions
+                  ? `${((totals.clicks / totals.impressions) * 100).toFixed(1)}% rate`
+                  : "No results yet"}
+              </small>
+            </div>
+            <div>
+              <span>Conversions</span>
+              <strong>{compact(totals.conversions)}</strong>
+              <small>Attributed results</small>
+            </div>
+          </div>
+          <section className="card campaign-recommendations">
+            <h2>Recommended next moves</h2>
+            {state.insights.slice(0, 3).map((insight) => (
+              <article key={insight.id}>
+                <span>
+                  <strong>{insight.title}</strong>
+                  <small>{insight.evidence}</small>
+                </span>
+                <button
+                  className="text-button"
+                  onClick={() => navigate("/app/insights")}
+                >
+                  View insight
+                </button>
+              </article>
+            ))}
+          </section>
+        </section>
+      )}
+
       <Modal
         open={Boolean(editing)}
         onClose={() => setEditing(null)}
@@ -3613,6 +3396,7 @@ function CampaignWorkspace({
           </button>
         </footer>
       </Modal>
+
       <Modal
         open={Boolean(scheduleTarget)}
         onClose={() => setScheduleTarget(null)}
@@ -3665,6 +3449,7 @@ function CampaignWorkspace({
           </button>
         </footer>
       </Modal>
+
       <Modal
         open={Boolean(publishTarget)}
         onClose={() => setPublishTarget(null)}
@@ -3686,9 +3471,7 @@ function CampaignWorkspace({
             <ShieldCheck />
             <span>
               <strong>Explicit confirmation required</strong>
-              <small>
-                This action will be recorded in the workspace audit log.
-              </small>
+              <small>This action is recorded in the workspace audit log.</small>
             </span>
           </div>
         </div>
@@ -3719,141 +3502,6 @@ function CampaignWorkspace({
         </footer>
       </Modal>
     </div>
-  );
-}
-
-function ContentPreview({
-  item,
-  onEdit,
-}: {
-  item: ContentItem;
-  onEdit: () => void;
-}) {
-  return (
-    <article className="mini-content-card">
-      <div className="content-channel">
-        <span className="channel-icon">{initials(item.channel)}</span>
-        <span>
-          <strong>{item.channel}</strong>
-          <small>{item.type}</small>
-        </span>
-        <Badge value={item.state} />
-      </div>
-      <div className="mini-content-canvas">
-        <strong>{item.title}</strong>
-        <p>{item.body}</p>
-      </div>
-      <footer>
-        <span>Version {item.version}</span>
-        <button onClick={onEdit}>
-          Open <ArrowRight />
-        </button>
-      </footer>
-    </article>
-  );
-}
-
-function AudienceBuilder({ state }: { state: AppState }) {
-  const audience = state.audiences[0];
-  return (
-    <section className="audience-builder">
-      <div className="audience-rules card">
-        <div className="card-head">
-          <div>
-            <span className="eyebrow">Audience definition</span>
-            <h2>{audience.name}</h2>
-            <p>{audience.description}</p>
-          </div>
-          <button className="button secondary">
-            <Sparkles /> Refine with AI
-          </button>
-        </div>
-        <div className="rule-group">
-          <span className="logic-chip">AND</span>
-          {audience.rules.map((rule, index) => (
-            <div className="rule-row" key={`${rule.field}-${index}`}>
-              <select defaultValue={rule.field}>
-                {[
-                  "Country",
-                  "Lifecycle stage",
-                  "Last active date",
-                  "Plan",
-                  "Total spend",
-                  "Lead score",
-                  "Email consent",
-                  "Ad consent",
-                ].map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-              <select defaultValue={rule.operator}>
-                <option>is</option>
-                <option>is not</option>
-                <option>within</option>
-                <option>greater than</option>
-              </select>
-              <input defaultValue={rule.value} />
-              <button className="icon-button">
-                <X />
-              </button>
-            </div>
-          ))}
-          <button className="add-rule">
-            <Plus /> Add rule
-          </button>
-          <button className="add-group">
-            <Layers3 /> Add AND/OR group
-          </button>
-        </div>
-      </div>
-      <aside>
-        <section className="card audience-estimate">
-          <span className="eyebrow">Live estimate</span>
-          <strong>{compact(audience.size)}</strong>
-          <p>eligible people</p>
-          <div className="estimate-bar">
-            <span style={{ width: "94%" }} />
-            <i style={{ width: "6%" }} />
-          </div>
-          <div>
-            <span>
-              <i className="dot teal" /> Eligible
-            </span>
-            <strong>{compact(audience.size)}</strong>
-          </div>
-          <div>
-            <span>
-              <i className="dot amber" /> Consent-filtered
-            </span>
-            <strong>{audience.excluded}</strong>
-          </div>
-          <div>
-            <span>
-              <i className="dot gray" /> Suppressed
-            </span>
-            <strong>74</strong>
-          </div>
-        </section>
-        <section className="card">
-          <span className="eyebrow">Eligible destinations</span>
-          <div className="eligible-list">
-            {audience.destinations.map((item) => (
-              <span key={item}>
-                <CheckCircle2 />
-                {item}
-              </span>
-            ))}
-          </div>
-          <div className="alert amber compact-alert">
-            <AlertTriangle />
-            <span>
-              <strong>Consent policy applied</strong>
-              <small>Advertising consent required for paid destinations.</small>
-            </span>
-          </div>
-        </section>
-      </aside>
-    </section>
   );
 }
 
@@ -3889,14 +3537,8 @@ function CalendarView({
     <div className={embedded ? "embedded-page" : "page"}>
       {!embedded && (
         <PageHeader
-          eyebrow="Create"
           title="Calendar"
-          description="One approval-aware schedule across every campaign and channel."
-          actions={
-            <button className="button primary">
-              <Plus /> Schedule content
-            </button>
-          }
+          description="Review and adjust the approval-aware schedule across every channel."
         />
       )}
       <div className="calendar-toolbar">
@@ -3910,16 +3552,34 @@ function CalendarView({
           </button>
           <h2>August 2026</h2>
         </div>
-        <div className="segmented">
-          {["Month", "Week", "5 day", "List"].map((item) => (
-            <button
-              className={view === item ? "active" : ""}
-              onClick={() => setView(item)}
-              key={item}
-            >
-              {item}
-            </button>
-          ))}
+        <div className="calendar-view-controls">
+          <div className="segmented">
+            {["Month", "List"].map((item) => (
+              <button
+                className={view === item ? "active" : ""}
+                onClick={() => setView(item)}
+                key={item}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <details className="view-options">
+            <summary>
+              View options <ChevronDown />
+            </summary>
+            <div>
+              {["Week", "5 day"].map((item) => (
+                <button
+                  className={view === item ? "active" : ""}
+                  onClick={() => setView(item)}
+                  key={item}
+                >
+                  {item}
+                </button>
+              ))}
+            </div>
+          </details>
         </div>
       </div>
       {view === "Month" ? (
@@ -4115,7 +3775,6 @@ function ApprovalsView({
   ) => Promise<ActionResult<T>>;
   embedded?: boolean;
 }) {
-  const [view, setView] = useState<"grid" | "table">("grid");
   const [selected, setSelected] = useState<string[]>([]);
   const [review, setReview] = useState<Approval | null>(null);
   const [comment, setComment] = useState("");
@@ -4135,168 +3794,106 @@ function ApprovalsView({
     setReview(null);
     setComment("");
   };
+
   return (
     <div className={embedded ? "embedded-page" : "page"}>
       {!embedded && (
         <PageHeader
-          eyebrow="Create"
           title="Approvals"
-          description="Make the human decisions that determine what can go live."
-          actions={
-            <>
-              <button className="button secondary">
-                <ListFilter /> Filters
-              </button>
-              <button
-                className="button primary"
-                disabled={!selected.length}
-                onClick={() =>
-                  void runAction(
-                    {
-                      type: "bulkApprove",
-                      approvalIds: selected,
-                      confirmed: true,
-                    },
-                    `${selected.length} items approved`,
-                  )
-                }
-              >
-                <Check /> Approve selected
-              </button>
-            </>
-          }
+          description="Review the work that needs a human decision before it goes live."
         />
       )}
-      <div className="approval-summary">
-        <MetricCard
-          label="Awaiting review"
-          value={String(pending.length)}
-          detail="Across 2 campaigns"
-          icon={<Clock3 />}
-          toneName="amber"
-        />
-        <MetricCard
-          label="Approved this week"
-          value={String(
-            state.approvals.filter((item) => item.state === "APPROVED").length +
-              9,
-          )}
-          detail="89% approval rate"
-          icon={<CheckCircle2 />}
-        />
-        <MetricCard
-          label="Average review time"
-          value="3.2h"
-          detail="↓ 24% this month"
-          icon={<Gauge />}
-          toneName="violet"
-        />
-        <div className="view-toggle">
-          <button
-            className={view === "grid" ? "active" : ""}
-            onClick={() => setView("grid")}
-          >
-            <LayoutGrid />
+      <div className="approval-list-heading">
+        <div>
+          <h2>{pending.length} awaiting review</h2>
+          <p>Oldest submissions are shown first.</p>
+        </div>
+        <span>
+          Average review time <strong>3.2 hours</strong>
+        </span>
+      </div>
+
+      {selected.length > 0 && (
+        <div
+          className="bulk-action-bar"
+          role="region"
+          aria-label="Bulk actions"
+        >
+          <strong>{selected.length} selected</strong>
+          <button className="text-button" onClick={() => setSelected([])}>
+            Clear selection
           </button>
           <button
-            className={view === "table" ? "active" : ""}
-            onClick={() => setView("table")}
+            className="button primary"
+            onClick={async () => {
+              await runAction(
+                {
+                  type: "bulkApprove",
+                  approvalIds: selected,
+                  confirmed: true,
+                },
+                `${selected.length} items approved`,
+              );
+              setSelected([]);
+            }}
           >
-            <Menu />
+            <Check /> Approve selected
           </button>
         </div>
-      </div>
+      )}
+
       {pending.length ? (
-        <div className={view === "grid" ? "approval-grid" : "approval-list"}>
+        <section className="card approvals-comfortable-list">
           {pending.map((approval) => {
             const item = state.content.find(
               (content) => content.id === approval.contentId,
-            )!;
+            );
+            if (!item) return null;
             const campaign = state.campaigns.find(
-              (campaignItem) => campaignItem.id === item.campaignId,
+              (candidate) => candidate.id === item.campaignId,
             );
             return (
-              <article className="approval-card card" key={approval.id}>
-                <header>
-                  <label className="select-checkbox">
-                    <span className="sr-only">Select {item.title}</span>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(approval.id)}
-                      onChange={(event) =>
-                        setSelected((value) =>
-                          event.target.checked
-                            ? [...value, approval.id]
-                            : value.filter((id) => id !== approval.id),
-                        )
-                      }
-                    />
-                    <span />
-                  </label>
-                  <span className="channel-icon">{initials(item.channel)}</span>
-                  <span>
-                    <strong>{item.channel}</strong>
-                    <small>
-                      {item.type} · v{item.version}
-                    </small>
-                  </span>
-                  <Badge value="PENDING" />
-                </header>
-                <button
-                  className="approval-preview"
-                  onClick={() => setReview(approval)}
-                >
-                  <span className="eyebrow">{item.title}</span>
+              <article className="approval-comfortable-row" key={approval.id}>
+                <label className="select-checkbox">
+                  <span className="sr-only">Select {item.title}</span>
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(approval.id)}
+                    onChange={(event) =>
+                      setSelected((value) =>
+                        event.target.checked
+                          ? [...value, approval.id]
+                          : value.filter((id) => id !== approval.id),
+                      )
+                    }
+                  />
+                  <span />
+                </label>
+                <span className="channel-icon">{initials(item.channel)}</span>
+                <span className="approval-row-copy">
+                  <strong>{item.title}</strong>
+                  <small>
+                    {campaign?.title} · {item.channel} · Version {item.version}
+                  </small>
                   <p>{item.body}</p>
+                </span>
+                <span className="approval-row-meta">
+                  <Badge value="PENDING" />
+                  <small>Submitted {date(approval.createdAt)}</small>
+                </span>
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    setReview(approval);
+                    setComment("");
+                  }}
+                >
+                  Review
                 </button>
-                <div className="approval-meta">
-                  <span>{campaign?.title}</span>
-                  <span>Submitted by Priya</span>
-                  <span>{date(approval.createdAt)}</span>
-                </div>
-                <footer>
-                  <button
-                    className="button ghost"
-                    onClick={() => {
-                      setReview(approval);
-                      setComment(
-                        "Please revise the opening and make the evidence more specific.",
-                      );
-                    }}
-                  >
-                    Request changes
-                  </button>
-                  <button
-                    className="button secondary"
-                    onClick={() => {
-                      setReview(approval);
-                      setComment("");
-                    }}
-                  >
-                    Review
-                  </button>
-                  <button
-                    className="button primary"
-                    onClick={() => {
-                      setReview(approval);
-                      setComment("");
-                      void runAction(
-                        {
-                          type: "decideApproval",
-                          approvalId: approval.id,
-                          decision: "APPROVED",
-                        },
-                        "Content approved",
-                      );
-                    }}
-                  >
-                    <Check /> Approve
-                  </button>
-                </footer>
               </article>
             );
           })}
-        </div>
+        </section>
       ) : (
         <Empty
           icon={<CheckCircle2 />}
@@ -4304,47 +3901,41 @@ function ApprovalsView({
           text="New submissions will appear here for review."
         />
       )}
-      <section className="card approval-history">
-        <div className="card-head">
-          <div>
-            <span className="eyebrow">Decision history</span>
-            <h2>Recent reviews</h2>
-          </div>
-        </div>
-        <div className="data-table">
-          <div className="table-row table-header">
-            <span>Content</span>
-            <span>Decision</span>
-            <span>Reviewer</span>
-            <span>Comment</span>
-            <span>Date</span>
-          </div>
+
+      <details className="card approval-history-disclosure">
+        <summary>
+          <span>
+            <strong>Decision history</strong>
+            <small>Review recent approval activity</small>
+          </span>
+          <ChevronDown />
+        </summary>
+        <div className="approval-history-simple">
           {state.approvals
             .filter((item) => item.state !== "PENDING")
             .map((approval) => {
-              const content = state.content.find(
+              const contentItem = state.content.find(
                 (item) => item.id === approval.contentId,
               );
               const reviewer = state.users.find(
                 (item) => item.id === approval.reviewerId,
               );
               return (
-                <div className="table-row" key={approval.id}>
+                <div key={approval.id}>
                   <span>
-                    <strong>{content?.title}</strong>
-                    <small>{content?.channel}</small>
+                    <strong>{contentItem?.title}</strong>
+                    <small>{contentItem?.channel}</small>
                   </span>
-                  <span>
-                    <Badge value={approval.state} />
-                  </span>
+                  <Badge value={approval.state} />
                   <span>{reviewer?.name ?? "—"}</span>
                   <span>{approval.comment ?? "No comment"}</span>
-                  <span>{date(approval.decidedAt)}</span>
+                  <time>{date(approval.decidedAt)}</time>
                 </div>
               );
             })}
         </div>
-      </section>
+      </details>
+
       <Modal
         open={Boolean(review)}
         onClose={() => setReview(null)}
@@ -4356,12 +3947,12 @@ function ApprovalsView({
       >
         <div className="modal-body review-layout">
           <div className="review-preview">
-            <span className="eyebrow">
+            <strong>
               {
                 state.content.find((item) => item.id === review?.contentId)
                   ?.title
               }
-            </span>
+            </strong>
             <p>
               {
                 state.content.find((item) => item.id === review?.contentId)
@@ -4370,7 +3961,7 @@ function ApprovalsView({
             </p>
           </div>
           <aside>
-            <h3>Brand checks</h3>
+            <h3>Ready-to-publish checks</h3>
             <div className="brand-checks vertical">
               <span>
                 <CheckCircle2 /> Voice aligned
@@ -5481,20 +5072,11 @@ function InsightsView({
   const totals = metrics.reduce(
     (sum, item) => ({
       impressions: sum.impressions + item.impressions,
-      engagement: sum.engagement + item.engagement,
-      clicks: sum.clicks + item.clicks,
       leads: sum.leads + item.leads,
       spend: sum.spend + item.spend,
       revenue: sum.revenue + item.revenue,
     }),
-    {
-      impressions: 0,
-      engagement: 0,
-      clicks: 0,
-      leads: 0,
-      spend: 0,
-      revenue: 0,
-    },
+    { impressions: 0, leads: 0, spend: 0, revenue: 0 },
   );
   const [creating, setCreating] = useState<string | null>(null);
   const followup = async (insightId: string) => {
@@ -5504,93 +5086,66 @@ function InsightsView({
       "Follow-up campaign generated from recommendation",
     );
     setCreating(null);
-    if (result.ok) navigate(`/app/campaigns/${result.data.campaignId}`);
+    if (result.ok)
+      navigate(`/app/campaigns/${result.data.campaignId}/overview`);
   };
+
   return (
     <div className={embedded ? "embedded-page" : "page"}>
       {!embedded && (
         <PageHeader
-          eyebrow="Measure"
           title="Insights"
-          description="Understand what changed, why it matters, and what GrowthOS recommends next."
-          actions={
-            <div className="segmented">
-              {[7, 30, 90, 365].map((item) => (
-                <button
-                  className={range === item ? "active" : ""}
-                  onClick={() => setRange(Math.min(item, state.metrics.length))}
-                  key={item}
-                >
-                  {item === 365 ? "12 months" : `${item} days`}
-                </button>
-              ))}
-            </div>
-          }
+          description="A focused view of performance and the next decisions worth making."
         />
       )}
-      <div className="insight-metric-grid">
-        <div>
-          <span>Reach</span>
-          <strong>{compact(Math.round(totals.impressions * 0.82))}</strong>
-          <small className="trend-up">↑ 16.2%</small>
+      <div className="insights-toolbar">
+        <div className="segmented" aria-label="Insights date range">
+          {[7, 30, 90].map((item) => (
+            <button
+              className={range === item ? "active" : ""}
+              onClick={() => setRange(Math.min(item, state.metrics.length))}
+              key={item}
+            >
+              {item} days
+            </button>
+          ))}
         </div>
+      </div>
+      <section className="today-metrics insights-three-metrics">
         <div>
-          <span>Impressions</span>
-          <strong>{compact(totals.impressions)}</strong>
-          <small className="trend-up">↑ 18.4%</small>
-        </div>
-        <div>
-          <span>Engagement</span>
-          <strong>{compact(totals.engagement)}</strong>
-          <small className="trend-up">↑ 11.8%</small>
-        </div>
-        <div>
-          <span>Clicks</span>
-          <strong>{compact(totals.clicks)}</strong>
-          <small className="trend-up">↑ 12.1%</small>
-        </div>
-        <div>
-          <span>Leads</span>
+          <span>Qualified leads</span>
           <strong>{compact(totals.leads)}</strong>
-          <small className="trend-up">↑ 9.8%</small>
+          <small>Across all active channels</small>
         </div>
         <div>
           <span>Revenue</span>
           <strong>{money(totals.revenue, state.workspace.currency)}</strong>
-          <small className="trend-up">↑ 14.7%</small>
+          <small>
+            {totals.spend
+              ? `${(totals.revenue / totals.spend).toFixed(1)}× return on spend`
+              : "No paid spend"}
+          </small>
         </div>
         <div>
-          <span>Spend</span>
-          <strong>{money(totals.spend, state.workspace.currency)}</strong>
-          <small>On plan</small>
-        </div>
-        <div>
-          <span>Cost / result</span>
+          <span>Cost per lead</span>
           <strong>
             {money(
               totals.spend / Math.max(totals.leads, 1),
               state.workspace.currency,
             )}
           </strong>
-          <small className="trend-up">↓ 6.3%</small>
+          <small>{compact(totals.impressions)} impressions</small>
         </div>
-      </div>
-      <section className="card insight-chart">
-        <div className="card-head">
+      </section>
+
+      <section className="card insight-trend-card">
+        <div className="section-heading">
           <div>
-            <span className="eyebrow">Cross-channel trend</span>
-            <h2>More reach is converting efficiently</h2>
-          </div>
-          <div className="legend">
-            <span>
-              <i className="teal" /> Impressions
-            </span>
-            <span>
-              <i className="violet" /> Clicks ×20
-            </span>
+            <h2>Lead trend</h2>
+            <p>Daily qualified leads across every channel.</p>
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={280}>
           <LineChart data={metrics}>
             <CartesianGrid
               strokeDasharray="3 3"
@@ -5604,144 +5159,101 @@ function InsightsView({
               }
               axisLine={false}
               tickLine={false}
+              tick={{ fill: "#7b8784", fontSize: 11 }}
             />
             <YAxis hide />
-            <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="impressions"
-              stroke="#0f766e"
-              strokeWidth={2.5}
-              dot={false}
+            <Tooltip
+              contentStyle={{
+                border: "1px solid #dfe6e3",
+                borderRadius: 10,
+              }}
+              labelFormatter={(value) =>
+                date(String(value), { month: "short", day: "numeric" })
+              }
             />
             <Line
               type="monotone"
-              dataKey={(item) => item.clicks * 20}
-              name="Clicks ×20"
-              stroke="#7357d8"
-              strokeWidth={2.2}
+              dataKey="leads"
+              stroke="#0f766e"
+              strokeWidth={3}
               dot={false}
             />
           </LineChart>
         </ResponsiveContainer>
       </section>
-      <section className="recommendation-section">
-        <div className="section-title">
+
+      <section className="recommendations-simple">
+        <div className="section-heading">
           <div>
-            <span className="eyebrow">
-              <Sparkles /> AI recommendations
-            </span>
-            <h2>Four actions worth taking now</h2>
+            <h2>Recommended next moves</h2>
+            <p>
+              Evidence-backed actions, limited to the decisions that matter.
+            </p>
           </div>
-          <p>
-            Evidence, confidence, and expected effect are shown before you act.
-          </p>
         </div>
-        <div className="recommendation-grid">
-          {state.insights.map((insight) => (
-            <article className="recommendation-card card" key={insight.id}>
-              <header>
-                <span
-                  className={`signal-icon ${insight.kind === "WARNING" ? "amber" : insight.kind === "CONNECTION" ? "red" : "violet"}`}
-                >
-                  {insight.kind === "WARNING" ? (
-                    <AlertTriangle />
-                  ) : insight.kind === "CONNECTION" ? (
-                    <Link2 />
-                  ) : (
-                    <Sparkles />
-                  )}
-                </span>
-                <Badge>{insight.kind}</Badge>
-                <strong>{insight.confidence}% confidence</strong>
-              </header>
+        <div className="recommendation-three-grid">
+          {state.insights.slice(0, 3).map((insight) => (
+            <article className="card" key={insight.id}>
+              <span className="confidence-copy">
+                {Math.round(insight.confidence * 100)}% confidence
+              </span>
               <h3>{insight.title}</h3>
               <p>{insight.evidence}</p>
-              <div className="effect-box">
-                <span>Expected effect</span>
-                <strong>{insight.expectedEffect}</strong>
-              </div>
-              <footer>
-                <span>{insight.action}</span>
-                <button
-                  className="button secondary"
-                  disabled={creating === insight.id}
-                  onClick={() => void followup(insight.id)}
-                >
-                  {creating === insight.id ? (
-                    <Loader2 className="spin" />
-                  ) : (
-                    <Plus />
-                  )}{" "}
-                  Create campaign
-                </button>
-              </footer>
+              <small>{insight.expectedEffect}</small>
+              <button
+                className="button secondary full"
+                onClick={() => void followup(insight.id)}
+                disabled={creating === insight.id}
+              >
+                {creating === insight.id ? (
+                  <Loader2 className="spin" />
+                ) : (
+                  <Plus />
+                )}
+                Create follow-up
+              </button>
             </article>
           ))}
         </div>
       </section>
-      <div className="two-column">
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <span className="eyebrow">Platform performance</span>
-              <h2>Channel contribution</h2>
-            </div>
-          </div>
-          <div className="platform-bars">
-            {[
-              ["LinkedIn", 82, "42% of qualified leads"],
-              ["Email", 68, "Strongest conversion rate"],
-              ["Meta Ads", 57, "Creative fatigue detected"],
-              ["Google Analytics", 46, "Measurement source"],
-            ].map(([name, width, note]) => (
-              <div key={String(name)}>
-                <span>
-                  <strong>{name}</strong>
-                  <small>{note}</small>
-                </span>
-                <div>
-                  <i style={{ width: `${width}%` }} />
-                </div>
-                <em>{width}</em>
+
+      <details className="card insight-details-disclosure">
+        <summary>
+          <span>
+            <strong>View platform details</strong>
+            <small>Channel performance and inferred preferences</small>
+          </span>
+          <ChevronDown />
+        </summary>
+        <div className="platform-detail-grid">
+          {channelKeys.map((key) => {
+            const channelContent = state.content.filter(
+              (item) => classifyChannel(item.channel) === key,
+            );
+            const impressions = channelContent.reduce(
+              (sum, item) => sum + item.metrics.impressions,
+              0,
+            );
+            return (
+              <div key={key}>
+                <strong>{channelWorkspaces[key].label}</strong>
+                <span>{channelContent.length} items</span>
+                <small>{compact(impressions)} impressions</small>
               </div>
-            ))}
-          </div>
-        </section>
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <span className="eyebrow">Learning preferences</span>
-              <h2>What GrowthOS has inferred</h2>
-            </div>
-            <button className="button secondary">
-              <Pencil /> Edit
-            </button>
-          </div>
-          <div className="learning-list">
-            {state.learning.map((item) => (
-              <div key={item.id}>
-                <span
-                  className={item.explicit ? "explicit-pref" : "inferred-pref"}
-                >
-                  {item.explicit ? <ShieldCheck /> : <Sparkles />}
-                </span>
-                <span>
-                  <strong>{item.label}</strong>
-                  <small>{item.value}</small>
-                </span>
-                <Badge>
-                  {item.explicit ? "Explicit" : `${item.evidenceCount} signals`}
-                </Badge>
-              </div>
-            ))}
-          </div>
-          <small className="security-note">
-            <ShieldCheck /> Inferred preferences never overwrite explicit Brand
-            Kit settings.
-          </small>
-        </section>
-      </div>
+            );
+          })}
+        </div>
+        <div className="learning-note">
+          <ShieldCheck />
+          <span>
+            <strong>Brand Kit settings stay authoritative</strong>
+            <small>
+              Inferred preferences inform recommendations but never overwrite
+              explicit brand choices.
+            </small>
+          </span>
+        </div>
+      </details>
     </div>
   );
 }
@@ -6238,9 +5750,13 @@ function CommandPalette({
 }) {
   const [query, setQuery] = useState("");
   if (!open) return null;
-  const allItems: Array<readonly [string, string, string]> = [];
-  for (const section of navigation)
-    for (const item of section.items) allItems.push(item);
+  const allItems: Array<readonly [string, string, string]> = [
+    ...primaryNavigation,
+    ...channelNavigation,
+    ...operationsNavigation,
+    ...manageNavigation,
+    ["Data Syncs", "/app/syncs", "sync"],
+  ];
   const items = allItems.filter(([label]) =>
     label.toLowerCase().includes(query.toLowerCase()),
   );
