@@ -323,6 +323,352 @@ function IntegrationMark({
   );
 }
 
+type PreviewAsset = {
+  channel: string;
+  type: string;
+  title: string;
+  body: string;
+};
+
+function previewKind(asset: Pick<PreviewAsset, "channel" | "type">) {
+  const value = `${asset.channel} ${asset.type}`.toLowerCase();
+  if (value.includes("email")) return "email";
+  if (value.includes("sms") || value.includes("whatsapp")) return "sms";
+  if (value.includes("tiktok")) return "tiktok";
+  if (value.includes("facebook") && !value.includes("ads")) return "facebook";
+  if (value.includes("instagram") && value.includes("carousel"))
+    return "carousel";
+  if (
+    value.includes("reel") ||
+    value.includes("short-form") ||
+    value.includes("video")
+  )
+    return "video";
+  if (value.includes("instagram")) return "instagram";
+  if (value.includes("ads") || value.includes("paid ad")) return "ad";
+  if (
+    value.includes("blog") ||
+    value.includes("landing") ||
+    value.includes("web")
+  )
+    return "web";
+  return "professional";
+}
+
+function previewKindLabel(asset: Pick<PreviewAsset, "channel" | "type">) {
+  const kind = previewKind(asset);
+  const labels: Record<string, string> = {
+    carousel: "Carousel",
+    video: "Short video",
+    email: "Email",
+    sms: "SMS",
+    tiktok: "TikTok",
+    facebook: "Facebook post",
+    instagram: "Instagram post",
+    ad: "Paid ad",
+    web: "Web page",
+    professional: "Social post",
+  };
+  return labels[kind];
+}
+
+function TemplateCopy({
+  text,
+  variables = {},
+  labels = {},
+}: {
+  text: string;
+  variables?: Record<string, string>;
+  labels?: Record<string, string>;
+}) {
+  return (
+    <>
+      {text
+        .split(/(\{\{[a-zA-Z0-9]+\}\}|\n)/g)
+        .filter(Boolean)
+        .map((part, index) => {
+          if (part === "\n") return <br key={`break-${index}`} />;
+          const match = part.match(/^\{\{([a-zA-Z0-9]+)\}\}$/);
+          if (!match) return <span key={`copy-${index}`}>{part}</span>;
+          const key = match[1];
+          const value = variables[key];
+          return (
+            <mark className="template-placeholder" key={`${key}-${index}`}>
+              {value || labels[key] || human(key)}
+            </mark>
+          );
+        })}
+    </>
+  );
+}
+
+function ProductVisual({
+  media,
+  tall = false,
+}: {
+  media?: AppState["media"][number];
+  tall?: boolean;
+}) {
+  const uploaded = Boolean(media?.tags.includes("uploaded"));
+  return (
+    <div
+      className={`product-visual-slot ${tall ? "product-visual-tall" : ""} ${media ? "has-product" : ""}`}
+    >
+      {uploaded && media?.kind === "IMAGE" ? (
+        // R2 media is served through a workspace-scoped route at its original dimensions.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={`/api/media?id=${encodeURIComponent(media.id)}`}
+          alt={media.name}
+        />
+      ) : (
+        <div
+          className="product-visual-placeholder"
+          aria-label="Product image placeholder"
+        >
+          <span className="placeholder-product-shape">
+            <i />
+            <i />
+            <i />
+          </span>
+          <strong>{media?.name ?? "Product image"}</strong>
+          <small>
+            {media
+              ? "Selected from Brand & Assets"
+              : "Your uploaded product goes here"}
+          </small>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssetPreview({
+  asset,
+  brandName,
+  media,
+  variables,
+  variableLabels,
+}: {
+  asset: PreviewAsset;
+  brandName: string;
+  media?: AppState["media"][number];
+  variables?: Record<string, string>;
+  variableLabels?: Record<string, string>;
+}) {
+  const kind = previewKind(asset);
+  const frames = asset.body
+    .split("\n")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const copy = (value: string) => (
+    <TemplateCopy text={value} variables={variables} labels={variableLabels} />
+  );
+  const brandAvatar = (
+    <span className="mock-brand-avatar">{initials(brandName)}</span>
+  );
+
+  return (
+    <article className={`asset-mockup asset-mockup-${kind}`}>
+      <header className="asset-mockup-label">
+        <span>{asset.channel}</span>
+        <small>{previewKindLabel(asset)}</small>
+      </header>
+
+      {kind === "carousel" && (
+        <div className="instagram-shell">
+          <div className="social-account-row">
+            {brandAvatar}
+            <strong>{brandName}</strong>
+            <MoreHorizontal />
+          </div>
+          <div className="carousel-slides" aria-label="Carousel slides">
+            {frames.slice(0, 4).map((frame, index) => (
+              <div key={frame}>
+                {index === 0 && <ProductVisual media={media} />}
+                <span>{index + 1}</span>
+                <strong>
+                  {copy(frame.replace(/^Slide \d+\s*[—:-]\s*/, ""))}
+                </strong>
+              </div>
+            ))}
+          </div>
+          <div className="social-action-row">
+            <span>♡</span>
+            <span>○</span>
+            <span>↗</span>
+            <i />
+          </div>
+          <p>
+            <strong>{brandName}</strong> {copy(asset.title)}
+          </p>
+        </div>
+      )}
+
+      {(kind === "video" || kind === "tiktok") && (
+        <div
+          className={`short-video-shell ${kind === "tiktok" ? "tiktok-shell" : ""}`}
+        >
+          <ProductVisual media={media} tall />
+          <span className="video-duration">0:15</span>
+          <span className="video-play">
+            <Play />
+          </span>
+          <div className="video-overlay-copy">
+            <strong>{copy(asset.title)}</strong>
+            <small>@{brandName.toLowerCase().replaceAll(" ", "")}</small>
+          </div>
+          <div className="storyboard-strip">
+            {frames.slice(0, 4).map((frame, index) => (
+              <span key={frame}>
+                <i>{index + 1}</i>
+                {copy(frame.replace(/^Scene \d+\s*[—:-]\s*/, ""))}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {kind === "instagram" && (
+        <div className="instagram-shell">
+          <div className="social-account-row">
+            {brandAvatar}
+            <strong>{brandName}</strong>
+            <MoreHorizontal />
+          </div>
+          <ProductVisual media={media} />
+          <div className="social-action-row">
+            <span>♡</span>
+            <span>○</span>
+            <span>↗</span>
+            <i />
+          </div>
+          <p>
+            <strong>{brandName}</strong> {copy(asset.body)}
+          </p>
+        </div>
+      )}
+
+      {kind === "facebook" && (
+        <div className="facebook-shell">
+          <div className="social-account-row">
+            {brandAvatar}
+            <span>
+              <strong>{brandName}</strong>
+              <small>Sponsored · 1h</small>
+            </span>
+            <MoreHorizontal />
+          </div>
+          <p>{copy(asset.body)}</p>
+          <ProductVisual media={media} />
+          <div className="facebook-actions">
+            <span>Like</span>
+            <span>Comment</span>
+            <span>Share</span>
+          </div>
+        </div>
+      )}
+
+      {kind === "email" && (
+        <div className="email-shell">
+          <div className="email-window-bar">
+            <i />
+            <i />
+            <i />
+            <span>Inbox preview</span>
+          </div>
+          <div className="email-meta">
+            <span>From</span>
+            <strong>{brandName}</strong>
+            <span>Subject</span>
+            <strong>{copy(asset.title)}</strong>
+          </div>
+          <div className="email-body-preview">
+            <span className="email-logo">{brandName}</span>
+            <ProductVisual media={media} />
+            <h3>{copy(asset.title)}</h3>
+            <p>{copy(asset.body)}</p>
+            <button>{variables?.primaryCta || "Primary call to action"}</button>
+            <small>Preferences · Unsubscribe</small>
+          </div>
+        </div>
+      )}
+
+      {kind === "sms" && (
+        <div className="sms-shell">
+          <div className="sms-phone-bar">
+            <span>‹</span>
+            <strong>{brandName}</strong>
+            <i />
+          </div>
+          <time>Today 2:14 PM</time>
+          <div className="sms-bubble">{copy(asset.body)}</div>
+          <div className="sms-compose">
+            <span>Message</span>
+            <Send />
+          </div>
+        </div>
+      )}
+
+      {kind === "ad" && (
+        <div className="ad-shell">
+          <div className="social-account-row">
+            {brandAvatar}
+            <span>
+              <strong>{brandName}</strong>
+              <small>Sponsored</small>
+            </span>
+            <MoreHorizontal />
+          </div>
+          <p>{copy(asset.body)}</p>
+          <ProductVisual media={media} />
+          <div className="ad-link-card">
+            <span>{variables?.productUrl || "your-product-page.com"}</span>
+            <strong>{copy(asset.title)}</strong>
+            <button>{variables?.primaryCta || "Learn more"}</button>
+          </div>
+        </div>
+      )}
+
+      {kind === "web" && (
+        <div className="web-preview-shell">
+          <div className="web-browser-bar">
+            <i />
+            <i />
+            <i />
+            <span>{brandName}</span>
+          </div>
+          <ProductVisual media={media} />
+          <h3>{copy(asset.title)}</h3>
+          <p>{copy(asset.body)}</p>
+          <button>{variables?.primaryCta || "Learn more"}</button>
+        </div>
+      )}
+
+      {kind === "professional" && (
+        <div className="professional-post-shell">
+          <div className="social-account-row">
+            {brandAvatar}
+            <span>
+              <strong>{brandName}</strong>
+              <small>Company · Just now</small>
+            </span>
+            <MoreHorizontal />
+          </div>
+          <p>{copy(asset.body)}</p>
+          <ProductVisual media={media} />
+          <div className="professional-actions">
+            <span>Like</span>
+            <span>Comment</span>
+            <span>Repost</span>
+            <span>Send</span>
+          </div>
+        </div>
+      )}
+    </article>
+  );
+}
+
 export function GrowthOSApp({ initialPath }: { initialPath: string }) {
   const [state, setState] = useState<AppState | null>(null);
   const [path, setPath] = useState(initialPath);
@@ -2459,6 +2805,7 @@ function CampaignCreator({
   const [mode, setMode] = useState<"template" | "custom">("template");
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selected, setSelected] = useState<Template | null>(null);
+  const [previewing, setPreviewing] = useState<Template | null>(null);
   const [campaignName, setCampaignName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
@@ -2474,6 +2821,19 @@ function CampaignCreator({
   );
   const [advancedContext, setAdvancedContext] = useState("");
   const [creating, setCreating] = useState(false);
+  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const defaultProductMedia =
+    state.media.find(
+      (item) =>
+        item.kind === "IMAGE" &&
+        item.approvedForAi &&
+        item.tags.includes("product"),
+    ) ??
+    state.media.find((item) => item.kind === "IMAGE" && item.approvedForAi);
+  const [selectedMediaId, setSelectedMediaId] = useState(
+    defaultProductMedia?.id ?? "",
+  );
+  const selectedMedia = state.media.find((item) => item.id === selectedMediaId);
 
   const filteredTemplates = initialChannel
     ? state.templates.filter((template) =>
@@ -2497,6 +2857,8 @@ function CampaignCreator({
 
   const chooseTemplate = (template: Template) => {
     setSelected(template);
+    setPreviewing(null);
+    setReviewConfirmed(false);
     setCampaignName(
       template.category === "Seasonal"
         ? `${template.occasion} 2026 — ${state.brand.name}`
@@ -2522,7 +2884,11 @@ function CampaignCreator({
         templateId: selected.id,
         name: campaignName,
         startDate,
-        variables,
+        variables: {
+          ...variables,
+          productAssetId: selectedMediaId,
+          productAssetName: selectedMedia?.name ?? "Product image placeholder",
+        },
       },
       `${selected.name} created with ${selected.assets.length} scheduled drafts`,
     );
@@ -2558,6 +2924,21 @@ function CampaignCreator({
         }))
         .filter((group) => group.assets.length)
     : [];
+  const reviewVariables = {
+    ...variables,
+    productAssetId: selectedMediaId,
+    productAssetName: selectedMedia?.name ?? "Product image placeholder",
+  };
+  const labelsFor = (template: Template) =>
+    Object.fromEntries(
+      template.variables.map((item) => [item.key, item.label]),
+    );
+  const featuredAsset =
+    selected?.assets.find((asset) =>
+      ["carousel", "video", "tiktok", "facebook", "instagram"].includes(
+        previewKind(asset),
+      ),
+    ) ?? selected?.assets[0];
 
   return (
     <div className="page focused-creator-page">
@@ -2646,11 +3027,23 @@ function CampaignCreator({
                       </div>
                     </dl>
                     <small>{template.channels.join(" · ")}</small>
-                    <button
-                      className="button secondary full"
-                      onClick={() => chooseTemplate(template)}
+                    <div
+                      className="template-format-preview"
+                      aria-label="Included formats"
                     >
-                      Use {template.name}
+                      {Array.from(
+                        new Set(template.assets.map(previewKindLabel)),
+                      )
+                        .slice(0, 5)
+                        .map((format) => (
+                          <span key={format}>{format}</span>
+                        ))}
+                    </div>
+                    <button
+                      className="button secondary full template-preview-button"
+                      onClick={() => setPreviewing(template)}
+                    >
+                      Preview {template.assets.length} assets
                     </button>
                   </article>
                 ))}
@@ -2710,6 +3103,28 @@ function CampaignCreator({
                     Asset dates are scheduled relative to this date.
                   </small>
                 </label>
+                <label className="span-2 product-media-field">
+                  Product image or video
+                  <select
+                    value={selectedMediaId}
+                    onChange={(event) => setSelectedMediaId(event.target.value)}
+                  >
+                    <option value="">
+                      Product image placeholder — choose later
+                    </option>
+                    {state.media
+                      .filter((item) => item.approvedForAi)
+                      .map((item) => (
+                        <option value={item.id} key={item.id}>
+                          {item.name} · {human(item.kind)}
+                        </option>
+                      ))}
+                  </select>
+                  <small>
+                    Uses an approved upload from Brand & Assets. You can leave a
+                    visible placeholder and replace it later.
+                  </small>
+                </label>
                 {selected.variables.map((item) => (
                   <label key={item.key}>
                     {item.label}
@@ -2734,6 +3149,23 @@ function CampaignCreator({
                   </label>
                 ))}
               </div>
+              {featuredAsset && (
+                <section className="essentials-live-preview">
+                  <div>
+                    <strong>Live product preview</strong>
+                    <small>
+                      This updates with the product and campaign details above.
+                    </small>
+                  </div>
+                  <AssetPreview
+                    asset={featuredAsset}
+                    brandName={state.brand.name}
+                    media={selectedMedia}
+                    variables={reviewVariables}
+                    variableLabels={labelsFor(selected)}
+                  />
+                </section>
+              )}
               <details className="advanced-disclosure">
                 <summary>Advanced</summary>
                 <div className="form-grid">
@@ -2798,31 +3230,54 @@ function CampaignCreator({
                   <strong>{selected.assets.length}</strong>
                 </div>
               </div>
-              <div className="review-channel-groups">
+              <div className="visual-review-intro">
+                <span className="review-eye-icon">
+                  <CheckCircle2 />
+                </span>
+                <span>
+                  <strong>
+                    Review the actual creative—not just asset names
+                  </strong>
+                  <small>
+                    Product placeholders and merge fields are highlighted. Every
+                    item remains editable before formal approval or publishing.
+                  </small>
+                </span>
+              </div>
+              <div className="visual-review-groups">
                 {groupedAssets.map((group) => (
-                  <details key={group.key}>
-                    <summary>
-                      <span>
-                        {iconMap[group.config.icon]}
-                        <strong>{group.config.label}</strong>
-                      </span>
-                      <span>
-                        {group.assets.length} {group.config.noun.toLowerCase()}
-                        <ChevronDown />
-                      </span>
-                    </summary>
-                    <div>
+                  <section className="visual-channel-review" key={group.key}>
+                    <header>
+                      <span>{iconMap[group.config.icon]}</span>
+                      <div>
+                        <h3>{group.config.label}</h3>
+                        <p>
+                          {group.assets.length}{" "}
+                          {group.config.noun.toLowerCase()}
+                        </p>
+                      </div>
+                    </header>
+                    <div className="asset-preview-grid">
                       {group.assets.map((asset) => (
-                        <article key={`${asset.channel}-${asset.title}`}>
-                          <span>{asset.channel}</span>
-                          <strong>{asset.title}</strong>
-                          <small>
-                            Day {asset.dayOffset + 1} · {asset.type}
-                          </small>
-                        </article>
+                        <div
+                          className="review-asset-wrap"
+                          key={`${asset.channel}-${asset.title}`}
+                        >
+                          <div className="review-asset-schedule">
+                            <span>Day {asset.dayOffset + 1}</span>
+                            <small>{asset.type}</small>
+                          </div>
+                          <AssetPreview
+                            asset={asset}
+                            brandName={state.brand.name}
+                            media={selectedMedia}
+                            variables={reviewVariables}
+                            variableLabels={labelsFor(selected)}
+                          />
+                        </div>
                       ))}
                     </div>
-                  </details>
+                  </section>
                 ))}
               </div>
               <details className="advanced-disclosure review-details">
@@ -2834,6 +3289,22 @@ function CampaignCreator({
                 {timingNote && <p>Timing note: {timingNote}</p>}
                 <p>Audience: {selected.audience}</p>
               </details>
+              <div className="campaign-review-confirmation">
+                <input
+                  id="confirm-campaign-review"
+                  type="checkbox"
+                  aria-label="I reviewed the campaign bundle"
+                  checked={reviewConfirmed}
+                  onChange={(event) => setReviewConfirmed(event.target.checked)}
+                />
+                <span>
+                  <strong>I reviewed the campaign bundle</strong>
+                  <small>
+                    Create these as editable drafts. Nothing will publish until
+                    the normal approval flow is complete.
+                  </small>
+                </span>
+              </div>
               <footer className="focused-creator-footer">
                 <button className="button ghost" onClick={() => setStep(2)}>
                   <ArrowLeft /> Back
@@ -2841,10 +3312,10 @@ function CampaignCreator({
                 <button
                   className="button primary"
                   onClick={() => void createFromTemplate()}
-                  disabled={creating}
+                  disabled={creating || !reviewConfirmed}
                 >
                   {creating ? <Loader2 className="spin" /> : <Check />}
-                  {creating ? "Creating campaign…" : "Create campaign"}
+                  {creating ? "Creating drafts…" : "Looks good — create drafts"}
                 </button>
               </footer>
             </section>
@@ -2925,6 +3396,103 @@ function CampaignCreator({
           </footer>
         </section>
       )}
+      <Modal
+        open={Boolean(previewing)}
+        onClose={() => setPreviewing(null)}
+        title={previewing?.name ?? "Template preview"}
+        eyebrow="See exactly what will be created"
+        wide
+      >
+        {previewing && (
+          <>
+            <div className="template-visual-inspector">
+              <aside>
+                <strong>Campaign bundle</strong>
+                <p>{previewing.description}</p>
+                <dl>
+                  <div>
+                    <dt>Duration</dt>
+                    <dd>{previewing.durationDays} days</dd>
+                  </div>
+                  <div>
+                    <dt>Assets</dt>
+                    <dd>{previewing.assets.length}</dd>
+                  </div>
+                  <div>
+                    <dt>Channels</dt>
+                    <dd>{previewing.channels.length}</dd>
+                  </div>
+                </dl>
+                <div className="inspector-product-note">
+                  <ProductVisual media={defaultProductMedia} />
+                  <p>
+                    The product area uses an approved Brand & Assets upload. If
+                    none is selected, GrowthOS keeps a visible placeholder.
+                  </p>
+                </div>
+                <div className="inspector-format-list">
+                  <strong>Included formats</strong>
+                  {Array.from(
+                    new Set(previewing.assets.map(previewKindLabel)),
+                  ).map((format) => (
+                    <span key={format}>
+                      <Check /> {format}
+                    </span>
+                  ))}
+                </div>
+              </aside>
+              <section className="template-inspector-gallery">
+                <div className="section-heading">
+                  <div>
+                    <h3>Every planned asset</h3>
+                    <p>
+                      Highlighted fields are replaced with your product and
+                      campaign details during customization.
+                    </p>
+                  </div>
+                </div>
+                <div className="asset-preview-grid">
+                  {previewing.assets.map((asset) => (
+                    <div
+                      className="review-asset-wrap"
+                      key={`${asset.channel}-${asset.title}`}
+                    >
+                      <div className="review-asset-schedule">
+                        <span>Day {asset.dayOffset + 1}</span>
+                        <small>{asset.type}</small>
+                      </div>
+                      <AssetPreview
+                        asset={asset}
+                        brandName={state.brand.name}
+                        media={defaultProductMedia}
+                        variableLabels={labelsFor(previewing)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </section>
+            </div>
+            <footer className="modal-footer template-inspector-footer">
+              <span>
+                Nothing is created or published until you confirm the next
+                steps.
+              </span>
+              <button
+                className="button ghost"
+                onClick={() => setPreviewing(null)}
+              >
+                Keep browsing
+              </button>
+              <button
+                className="button primary"
+                onClick={() => chooseTemplate(previewing)}
+              >
+                Use this template <ArrowRight />
+              </button>
+            </footer>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -2980,6 +3548,10 @@ function CampaignWorkspace({
 
   const content = state.content.filter(
     (item) => item.campaignId === campaign.id,
+  );
+  const campaignVariables = campaign.plan.variables ?? {};
+  const campaignProductMedia = state.media.find(
+    (item) => item.id === campaignVariables.productAssetId,
   );
   const campaignApprovals = state.approvals.filter((approval) =>
     content.some((item) => item.id === approval.contentId),
@@ -3219,7 +3791,14 @@ function CampaignWorkspace({
                       <Badge value={item.state} />
                     </div>
                   </header>
-                  <p>{item.body}</p>
+                  <div className="campaign-asset-visual">
+                    <AssetPreview
+                      asset={item}
+                      brandName={state.brand.name}
+                      media={campaignProductMedia}
+                      variables={campaignVariables}
+                    />
+                  </div>
                   <div className="content-detail-row">
                     <span>
                       <CalendarDays />
@@ -3779,6 +4358,16 @@ function ApprovalsView({
   const [review, setReview] = useState<Approval | null>(null);
   const [comment, setComment] = useState("");
   const pending = state.approvals.filter((item) => item.state === "PENDING");
+  const reviewContent = state.content.find(
+    (item) => item.id === review?.contentId,
+  );
+  const reviewCampaign = state.campaigns.find(
+    (item) => item.id === reviewContent?.campaignId,
+  );
+  const reviewVariables = reviewCampaign?.plan.variables ?? {};
+  const reviewMedia = state.media.find(
+    (item) => item.id === reviewVariables.productAssetId,
+  );
   const decide = async (
     decision: "APPROVED" | "REJECTED" | "CHANGES_REQUESTED",
   ) => {
@@ -3940,25 +4529,19 @@ function ApprovalsView({
         open={Boolean(review)}
         onClose={() => setReview(null)}
         title="Review content"
-        eyebrow={
-          state.content.find((item) => item.id === review?.contentId)?.channel
-        }
+        eyebrow={reviewContent?.channel}
         wide
       >
         <div className="modal-body review-layout">
-          <div className="review-preview">
-            <strong>
-              {
-                state.content.find((item) => item.id === review?.contentId)
-                  ?.title
-              }
-            </strong>
-            <p>
-              {
-                state.content.find((item) => item.id === review?.contentId)
-                  ?.body
-              }
-            </p>
+          <div className="approval-visual-preview">
+            {reviewContent && (
+              <AssetPreview
+                asset={reviewContent}
+                brandName={state.brand.name}
+                media={reviewMedia}
+                variables={reviewVariables}
+              />
+            )}
           </div>
           <aside>
             <h3>Ready-to-publish checks</h3>

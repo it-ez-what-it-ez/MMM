@@ -12,6 +12,8 @@ The application is original product work inspired by the operational clarity of 
 - Brand Kit, voice controls, media and source material management, and protected website import
 - Template-first campaign creation in three focused steps, plus a secondary one-objective custom AI flow
 - Persistent campaign-template library with Halloween, BFCM, Black Friday, Cyber Monday, holiday, product-launch, webinar, and win-back playbooks
+- Visual product campaign template with Instagram posts and carousels, Reels, Facebook posts, TikTok storyboards, full email, SMS, paid-ad, and professional-social mockups
+- Pre-selection template inspection, approved product-media selection from Brand & Assets, highlighted placeholders, and a visual confirmation bundle before drafts are created
 - Editable template variables and complete 7–11 asset bundles scheduled relative to the selected campaign start date
 - Approval inbox, comments, bulk decisions, scheduling, and idempotent simulated publishing
 - Nested audience rules, consent filtering, customer preview, and destination eligibility
@@ -55,7 +57,7 @@ npm run test:e2e
 npm run build
 ```
 
-Playwright covers Today, all four channel workspaces, custom AI creation, the three-step BFCM flow, four-tab campaign routing, Manage access, responsive navigation, integrations, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests additionally cover channel classification, template filtering, simplified navigation, legacy aliases, and campaign-tab routing.
+Playwright covers Today, all four channel workspaces, custom AI creation, visual product-template inspection, the three-step BFCM flow, four-tab campaign routing, Manage access, responsive navigation, integrations, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests additionally cover channel classification, template filtering, product-format coverage, simplified navigation, legacy aliases, and campaign-tab routing.
 
 The template acceptance journey creates an 11-asset BFCM campaign in three focused steps and verifies that every generated draft has a persisted relative schedule.
 

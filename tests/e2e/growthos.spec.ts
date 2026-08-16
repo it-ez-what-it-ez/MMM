@@ -203,6 +203,57 @@ test("shows three primary insights and recommendations", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("previews real product creative before choosing a template", async ({
+  page,
+}) => {
+  await page.goto("/app/campaigns/new");
+  const template = page
+    .locator("article")
+    .filter({ hasText: "Product Content Showcase" });
+  await expect(template.getByText("Carousel", { exact: true })).toBeVisible();
+  await expect(
+    template.getByText("Short video", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    template.getByText("Facebook post", { exact: true }),
+  ).toBeVisible();
+  await expect(template.getByText("TikTok", { exact: true })).toBeVisible();
+  await expect(template.getByText("Email", { exact: true })).toBeVisible();
+  await template.getByRole("button", { name: "Preview 8 assets" }).click();
+
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Every planned asset");
+  await expect(dialog.locator(".asset-mockup-carousel")).toBeVisible();
+  await expect(dialog.locator(".asset-mockup-tiktok")).toBeVisible();
+  await expect(dialog.locator(".asset-mockup-email")).toBeVisible();
+  await expect(dialog.locator(".asset-mockup-sms")).toBeVisible();
+  await expect(dialog.getByText("Product name").first()).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Use this template" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Customize essentials" }),
+  ).toBeVisible();
+  await page.getByLabel("Product name").fill("Northstar Signals");
+  await page.getByRole("button", { name: "Review campaign" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review and create" }),
+  ).toBeVisible();
+  await expect(page.locator(".asset-mockup-carousel")).toBeVisible();
+  await expect(
+    page
+      .locator(".template-placeholder")
+      .filter({ hasText: "Northstar Signals" })
+      .first(),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Looks good — create drafts" }),
+  ).toBeDisabled();
+  await page.getByLabel("I reviewed the campaign bundle").check();
+  await expect(
+    page.getByRole("button", { name: "Looks good — create drafts" }),
+  ).toBeEnabled();
+});
+
 test("creates a complete BFCM campaign in three focused steps", async ({
   page,
 }) => {
@@ -211,7 +262,14 @@ test("creates a complete BFCM campaign in three focused steps", async ({
   await expect(
     page.getByRole("heading", { name: "Choose a template" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "Use BFCM Revenue Sprint" }).click();
+  const template = page
+    .locator("article")
+    .filter({ hasText: "BFCM Revenue Sprint" });
+  await template.getByRole("button", { name: "Preview 11 assets" }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Use this template" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Customize essentials" }),
   ).toBeVisible();
@@ -221,7 +279,10 @@ test("creates a complete BFCM campaign in three focused steps", async ({
     page.getByRole("heading", { name: "Review and create" }),
   ).toBeVisible();
   await expect(page.getByText("11", { exact: true }).first()).toBeVisible();
-  await page.getByRole("button", { name: "Create campaign" }).click();
+  await page.getByLabel("I reviewed the campaign bundle").check();
+  await page
+    .getByRole("button", { name: "Looks good — create drafts" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "E2E Simplicity BFCM" }),
   ).toBeVisible();

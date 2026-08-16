@@ -24,6 +24,8 @@ Flexible campaign plans, provider capabilities, voice settings, and nested audie
 
 Template definitions are Zod-validated before seeding and again when read from D1. Instantiation merges persisted defaults with user-edited values and the explicit Brand Kit name, renders every asset, calculates each relative schedule in UTC, and records the template-to-campaign relationship. Generated content enters the same draft, versioning, approval, calendar, and publishing workflow as AI-created content.
 
+Template assets are visually rendered according to their channel and format before selection, during customization, in final campaign review, and inside the approval dialog. Product media is selected from approved Brand & Assets records; uploaded image bytes remain in R2 and are returned through a workspace-scoped read route, while the chosen asset ID and name stay in the campaign plan JSON. Missing media intentionally renders as a visible replacement slot rather than pretending the campaign is complete.
+
 `db/runtime.ts` applies numbered SQL migrations and performs idempotent seed insertion. The Northstar Analytics data set is deterministic, so fresh local and hosted environments start in a known acceptance state.
 
 ## Request and mutation flow

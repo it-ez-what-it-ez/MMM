@@ -17,6 +17,7 @@
 
 - Seed the Northstar Analytics workspace and all required campaigns, content, approvals, audiences, syncs, ads, metrics, recommendations, and activity.
 - Seed and persist seasonal and evergreen campaign templates with editable variables, multi-channel bundles, and template-use history.
+- Render platform-specific creative previews before template selection and approval, including product/media placeholders, carousel slides, short-video storyboards, email, and SMS.
 - Keep creation template-first in three steps, reduce campaign workspaces to four route-addressable tabs, and derive four channel workspaces without duplicating records.
 - Keep Calendar and Approvals separate, move advanced administration under Manage, and use a five-item mobile bottom bar.
 - Add unit and Playwright coverage for the core workflow.

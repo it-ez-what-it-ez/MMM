@@ -187,6 +187,30 @@ describe("GrowthOS domain rules", () => {
       seededCampaignTemplates.every((item) => item.assets.length >= 7),
     ).toBe(true);
   });
+  it("includes a product-first bundle with real social, video, email, and SMS formats", () => {
+    const template = seededCampaignTemplates.find(
+      (item) => item.id === "template-product-content-showcase",
+    )!;
+    expect(template.channels).toEqual(
+      expect.arrayContaining([
+        "Instagram",
+        "Facebook",
+        "TikTok",
+        "Email",
+        "SMS",
+      ]),
+    );
+    expect(template.assets.map((item) => item.type)).toEqual(
+      expect.arrayContaining([
+        "Carousel · 4 slides",
+        "Reel · 15 seconds",
+        "Short-form video · 18 seconds",
+        "Product launch email",
+        "Product reminder",
+      ]),
+    );
+    expect(JSON.stringify(template.assets)).toContain("{{productName}}");
+  });
   it("renders template variables without changing unknown placeholders", () => {
     expect(
       renderTemplateString(
