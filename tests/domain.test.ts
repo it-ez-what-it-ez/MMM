@@ -27,9 +27,11 @@ import {
   campaignTabRoute,
   channelNavigation,
   classifyChannel,
+  classifyTemplateCollection,
   manageNavigation,
   resolveLegacyRoute,
   templateMatchesChannel,
+  templateMatchesSearch,
 } from "@/lib/product";
 
 const definitions: IntegrationDefinition[] = [
@@ -258,6 +260,23 @@ describe("GrowthOS domain rules", () => {
     expect(templateMatchesChannel(bfcm, "messaging")).toBe(true);
     expect(templateMatchesChannel(bfcm, "paid")).toBe(true);
     expect(templateMatchesChannel(bfcm, "web")).toBe(false);
+  });
+  it("organizes templates into plain-language collections and searches formats", () => {
+    const bfcm = seededCampaignTemplates.find(
+      (item) => item.id === "template-bfcm",
+    )!;
+    const winback = seededCampaignTemplates.find(
+      (item) => item.id === "template-winback",
+    )!;
+    const product = seededCampaignTemplates.find(
+      (item) => item.id === "template-product-content-showcase",
+    )!;
+    expect(classifyTemplateCollection(bfcm)).toBe("seasonal");
+    expect(classifyTemplateCollection(winback)).toBe("lifecycle");
+    expect(classifyTemplateCollection(product)).toBe("product");
+    expect(templateMatchesSearch(product, "carousel")).toBe(true);
+    expect(templateMatchesSearch(product, "sms")).toBe(true);
+    expect(templateMatchesSearch(product, "webinar")).toBe(false);
   });
   it("keeps primary navigation compact and advanced pages under Manage", () => {
     expect(channelNavigation.map(([label]) => label)).toEqual([

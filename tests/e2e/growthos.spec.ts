@@ -7,7 +7,10 @@ test("home prioritizes today's next action", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Work to continue" }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Coming up" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "This week's plan" }),
+  ).toBeVisible();
+  await expect(page.getByText("Approval required before publishing")).toBeVisible();
 });
 
 test("each channel workspace uses the same three-part structure", async ({
@@ -26,6 +29,7 @@ test("each channel workspace uses the same three-part structure", async ({
     await expect(page.getByRole("tab", { name: noun })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Templates" })).toBeVisible();
     await expect(page.getByRole("tab", { name: "Results" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: new RegExp(`Search ${noun}`, "i") })).toBeVisible();
   }
 });
 
@@ -201,6 +205,8 @@ test("shows three primary insights and recommendations", async ({ page }) => {
   await expect(
     page.getByText("Reconnect Klaviyo before the next send"),
   ).toBeVisible();
+  await expect(page.getByText("99% confidence")).toBeVisible();
+  await expect(page.getByText("9900% confidence")).toHaveCount(0);
 });
 
 test("previews real product creative before choosing a template", async ({
@@ -262,6 +268,7 @@ test("creates a complete BFCM campaign in three focused steps", async ({
   await expect(
     page.getByRole("heading", { name: "Choose a template" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Seasonal" }).click();
   const template = page
     .locator("article")
     .filter({ hasText: "BFCM Revenue Sprint" });
@@ -311,7 +318,6 @@ test("Manage exposes advanced pages and mobile uses a bottom bar", async ({
     "Team",
     "Audit",
     "Settings",
-    "Data Syncs",
   ]) {
     await expect(page.getByRole("button", { name: label })).toBeVisible();
   }
@@ -319,4 +325,27 @@ test("Manage exposes advanced pages and mobile uses a bottom bar", async ({
   const mobileNav = page.getByRole("navigation", { name: "Mobile navigation" });
   await expect(mobileNav).toBeVisible();
   await expect(mobileNav.getByRole("button", { name: "More" })).toBeVisible();
+});
+
+test("audience previews explain overlap and activation safeguards", async ({
+  page,
+}) => {
+  await page.goto("/app/audiences");
+  await expect(page.getByText("Audience safeguards are active")).toBeVisible();
+  await page.getByRole("button", { name: "Open builder" }).first().click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Audience composition")).toBeVisible();
+  await expect(dialog.getByText("Overlap preview")).toBeVisible();
+  await expect(dialog.getByText(/Consent/).first()).toBeVisible();
+});
+
+test("sync diagnostics show accepted, filtered, and safe retry context", async ({
+  page,
+}) => {
+  await page.goto("/app/syncs");
+  await page.getByRole("button", { name: /Inspect Demo conversions/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByText("Delivery debugger")).toBeVisible();
+  await expect(dialog.getByText("Why records were filtered")).toBeVisible();
+  await expect(dialog.getByText(/idempotent/)).toBeVisible();
 });

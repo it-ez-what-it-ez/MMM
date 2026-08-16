@@ -26,6 +26,8 @@ Template definitions are Zod-validated before seeding and again when read from D
 
 Template assets are visually rendered according to their channel and format before selection, during customization, in final campaign review, and inside the approval dialog. Product media is selected from approved Brand & Assets records; uploaded image bytes remain in R2 and are returned through a workspace-scoped read route, while the chosen asset ID and name stay in the campaign plan JSON. Missing media intentionally renders as a visible replacement slot rather than pretending the campaign is complete.
 
+Template discovery uses shared collection and search classifiers. Channel workspaces reuse the platform rendering layer instead of maintaining duplicate content records. Launch readiness is derived from the existing campaign, connection, approval, audience, schedule, and consent state. Audience overlap and sync diagnostics remain explainable demo projections over persisted records.
+
 `db/runtime.ts` applies numbered SQL migrations and performs idempotent seed insertion. The Northstar Analytics data set is deterministic, so fresh local and hosted environments start in a known acceptance state.
 
 ## Request and mutation flow

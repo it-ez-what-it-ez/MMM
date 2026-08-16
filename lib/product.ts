@@ -113,6 +113,73 @@ export function templateMatchesChannel(
   return template.channels.some((item) => classifyChannel(item) === channel);
 }
 
+export type TemplateCollectionKey =
+  | "recommended"
+  | "product"
+  | "seasonal"
+  | "lifecycle"
+  | "events"
+  | "all";
+
+export const templateCollections: Array<{
+  key: TemplateCollectionKey;
+  label: string;
+}> = [
+  { key: "recommended", label: "Recommended" },
+  { key: "product", label: "Product" },
+  { key: "seasonal", label: "Seasonal" },
+  { key: "lifecycle", label: "Lifecycle" },
+  { key: "events", label: "Events" },
+  { key: "all", label: "All" },
+];
+
+export function classifyTemplateCollection(
+  template: Pick<CampaignTemplate, "category" | "occasion" | "slug">,
+): Exclude<TemplateCollectionKey, "recommended" | "all"> {
+  const value = `${template.category} ${template.occasion} ${template.slug}`.toLowerCase();
+  if (
+    value.includes("seasonal") ||
+    value.includes("halloween") ||
+    value.includes("black friday") ||
+    value.includes("bfcm") ||
+    value.includes("cyber monday") ||
+    value.includes("holiday")
+  )
+    return "seasonal";
+  if (
+    value.includes("lifecycle") ||
+    value.includes("win-back") ||
+    value.includes("winback") ||
+    value.includes("welcome") ||
+    value.includes("retention")
+  )
+    return "lifecycle";
+  if (value.includes("event") || value.includes("webinar")) return "events";
+  return "product";
+}
+
+export function templateMatchesSearch(
+  template: Pick<
+    CampaignTemplate,
+    "name" | "description" | "occasion" | "channels" | "assets"
+  >,
+  query: string,
+) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    template.name,
+    template.description,
+    template.occasion,
+    ...template.channels,
+    ...template.assets.flatMap((asset) => [
+      asset.channel,
+      asset.type,
+      asset.title,
+    ]),
+  ].some((value) => value.toLowerCase().includes(normalized));
+}
+
 export const primaryNavigation = [
   ["Home", "/app", "home"],
   ["Campaigns", "/app/campaigns", "campaign"],

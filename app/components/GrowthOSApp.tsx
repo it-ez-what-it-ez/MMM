@@ -64,14 +64,18 @@ import {
   channelWorkspaces,
   campaignTabKeys,
   campaignTabRoute,
+  classifyTemplateCollection,
   classifyChannel,
   manageNavigation,
   operationsNavigation,
   primaryNavigation,
   product,
   resolveLegacyRoute,
+  templateCollections,
   templateMatchesChannel,
+  templateMatchesSearch,
   type ChannelKey,
+  type TemplateCollectionKey,
 } from "@/lib/product";
 import type {
   ActionResult,
@@ -168,6 +172,31 @@ function initials(name: string) {
     .map((part) => part[0])
     .slice(0, 2)
     .join("");
+}
+
+function confidencePercent(value: number) {
+  return Math.round(value > 1 ? value : value * 100);
+}
+
+function channelConnectionState(state: AppState, channelName: string) {
+  const normalized = channelName.toLowerCase();
+  const aliases = normalized.includes("email")
+    ? ["klaviyo", "mailchimp", "hubspot"]
+    : normalized.includes("blog") || normalized.includes("web")
+      ? ["wordpress", "website"]
+      : normalized.includes("facebook") && !normalized.includes("ads")
+        ? ["facebook", "instagram"]
+        : [normalized];
+  const connection = state.connections.find((candidate) => {
+    const definition = state.definitions.find(
+      (item) => item.id === candidate.definitionId,
+    );
+    const providerName = definition?.name.toLowerCase() ?? "";
+    return aliases.some(
+      (alias) => providerName.includes(alias) || alias.includes(providerName),
+    );
+  });
+  return connection?.state ?? "MISSING";
 }
 
 function Badge({ children, value }: { children?: ReactNode; value?: string }) {
@@ -669,6 +698,63 @@ function AssetPreview({
   );
 }
 
+type ReadinessItem = {
+  label: string;
+  detail: string;
+  state: "ready" | "attention" | "protected";
+};
+
+function ReadinessPanel({
+  title = "Launch readiness",
+  items,
+  compact: compactPanel = false,
+}: {
+  title?: string;
+  items: ReadinessItem[];
+  compact?: boolean;
+}) {
+  const attention = items.filter((item) => item.state === "attention").length;
+  return (
+    <section
+      className={`readiness-panel ${compactPanel ? "readiness-panel-compact" : ""}`}
+      aria-label={title}
+    >
+      <header>
+        <span className="readiness-icon">
+          {attention ? <AlertTriangle /> : <ShieldCheck />}
+        </span>
+        <span>
+          <strong>{title}</strong>
+          <small>
+            {attention
+              ? `${attention} item${attention === 1 ? "" : "s"} to review before sending`
+              : "Every required safeguard is in place"}
+          </small>
+        </span>
+      </header>
+      <div className="readiness-items">
+        {items.map((item) => (
+          <div className={`readiness-item ${item.state}`} key={item.label}>
+            <span>
+              {item.state === "attention" ? (
+                <AlertTriangle />
+              ) : item.state === "protected" ? (
+                <ShieldCheck />
+              ) : (
+                <CheckCircle2 />
+              )}
+            </span>
+            <span>
+              <strong>{item.label}</strong>
+              <small>{item.detail}</small>
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function GrowthOSApp({ initialPath }: { initialPath: string }) {
   const [state, setState] = useState<AppState | null>(null);
   const [path, setPath] = useState(initialPath);
@@ -773,6 +859,14 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
         </div>
       </div>
     );
+
+  const connectionIssueCount = state.connections.filter((item) =>
+    ["DEGRADED", "FAILED", "ERROR"].includes(item.state),
+  ).length;
+  const syncIssueCount = state.syncs.filter((item) =>
+    ["DEGRADED", "FAILED", "ERROR"].includes(item.state),
+  ).length;
+  const operationalIssueCount = connectionIssueCount + syncIssueCount;
 
   const renderView = () => {
     const routedPath = resolveLegacyRoute(path);
@@ -971,23 +1065,31 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
                     {sidebarOpen && <span>{label}</span>}
                   </button>
                 ))}
-                <button
-                  className={`nav-item ${path === "/app/syncs" ? "active" : ""}`}
-                  title={!sidebarOpen ? "Data Syncs" : undefined}
-                  onClick={() => navigate("/app/syncs")}
-                >
-                  <RefreshCw />
-                  {sidebarOpen && <span>Data Syncs</span>}
-                </button>
               </div>
             )}
           </div>
         </nav>
         <div className="sidebar-footer">
-          <div className="health-strip">
+          <button
+            className={`health-strip ${operationalIssueCount ? "needs-attention" : ""}`}
+            onClick={() =>
+              navigate(connectionIssueCount ? "/app/integrations" : "/app/syncs")
+            }
+            aria-label={
+              operationalIssueCount
+                ? `${operationalIssueCount} marketing operation${operationalIssueCount === 1 ? "" : "s"} need attention`
+                : "All marketing operations are healthy"
+            }
+          >
             <span className="pulse-dot" />
-            {sidebarOpen && <span>All systems operational</span>}
-          </div>
+            {sidebarOpen && (
+              <span>
+                {operationalIssueCount
+                  ? `${operationalIssueCount} item${operationalIssueCount === 1 ? "" : "s"} need attention`
+                  : "All systems operational"}
+              </span>
+            )}
+          </button>
         </div>
       </aside>
       {mobileNav && (
@@ -1114,6 +1216,15 @@ function Dashboard({
         new Date(a.scheduledAt!).getTime() - new Date(b.scheduledAt!).getTime(),
     )
     .slice(0, 4);
+  const scheduledCount = state.content.filter(
+    (item) => item.state === "SCHEDULED" && item.scheduledAt,
+  ).length;
+  const draftCount = state.content.filter((item) => item.state === "DRAFT").length;
+  const channelCount = new Set(
+    state.content
+      .filter((item) => item.state === "SCHEDULED" && item.scheduledAt)
+      .map((item) => classifyChannel(item.channel)),
+  ).size;
   const degraded = state.connections.find(
     (item) => item.state === "DEGRADED" || item.state === "FAILED",
   );
@@ -1294,15 +1405,33 @@ function Dashboard({
       <section className="card today-section">
         <div className="card-head">
           <div>
-            <h2>Coming up</h2>
-            <p>Your next scheduled marketing moments.</p>
+            <h2>This week&apos;s plan</h2>
+            <p>One reviewable batch across every active channel.</p>
           </div>
           <button
             className="text-button"
             onClick={() => navigate("/app/calendar")}
           >
-            Open calendar
+            Review calendar
           </button>
+        </div>
+        <div className="weekly-plan-summary" aria-label="Weekly content plan summary">
+          <span>
+            <strong>{scheduledCount}</strong>
+            <small>Scheduled</small>
+          </span>
+          <span>
+            <strong>{draftCount}</strong>
+            <small>Editable drafts</small>
+          </span>
+          <span>
+            <strong>{channelCount}</strong>
+            <small>Active channels</small>
+          </span>
+          <span className="weekly-plan-safety">
+            <ShieldCheck />
+            <small>Approval required before publishing</small>
+          </span>
         </div>
         <div className="upcoming-row">
           {upcoming.map((item) => (
@@ -1355,13 +1484,34 @@ function ChannelWorkspace({
 }) {
   const config = channelWorkspaces[channel];
   const [tab, setTab] = useState<"work" | "templates" | "results">("work");
-  const content = state.content.filter(
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<
+    "all" | "draft" | "review" | "scheduled" | "published"
+  >("all");
+  const [visibleCount, setVisibleCount] = useState(8);
+  const channelContent = state.content.filter(
     (item) => classifyChannel(`${item.channel} ${item.type}`) === channel,
   );
+  const content = channelContent.filter((item) => {
+    const campaign = state.campaigns.find(
+      (candidate) => candidate.id === item.campaignId,
+    );
+    const matchesQuery = `${item.title} ${item.body} ${item.channel} ${campaign?.title ?? ""}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase());
+    const matchesStatus =
+      status === "all" ||
+      (status === "draft" && item.state === "DRAFT") ||
+      (status === "review" &&
+        ["READY_FOR_REVIEW", "AWAITING_APPROVAL"].includes(item.state)) ||
+      (status === "scheduled" && item.state === "SCHEDULED") ||
+      (status === "published" && item.state === "PUBLISHED");
+    return matchesQuery && matchesStatus;
+  });
   const templates = state.templates.filter((item) =>
     templateMatchesChannel(item, channel),
   );
-  const totals = content.reduce(
+  const totals = channelContent.reduce(
     (sum, item) => ({
       impressions: sum.impressions + item.metrics.impressions,
       clicks: sum.clicks + item.metrics.clicks,
@@ -1403,67 +1553,146 @@ function ChannelWorkspace({
       </div>
 
       {tab === "work" && (
-        <section className="card channel-work-list" role="tabpanel">
-          <div className="comfortable-table-head">
-            <span>{config.singular}</span>
-            <span>Campaign</span>
-            <span>Status</span>
-            <span>Scheduled</span>
+        <section className="channel-work-visual" role="tabpanel">
+          <div className="channel-work-toolbar">
+            <div className="search-box">
+              <Search />
+              <input
+                aria-label={`Search ${config.noun.toLowerCase()}`}
+                placeholder={`Search ${config.noun.toLowerCase()}`}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setVisibleCount(8);
+                }}
+              />
+            </div>
+            <div className="channel-status-filter" aria-label={`${config.noun} status`}>
+              {(
+                [
+                  ["all", "All"],
+                  ["draft", "Drafts"],
+                  ["review", "Review"],
+                  ["scheduled", "Scheduled"],
+                  ["published", "Published"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  className={status === value ? "active" : ""}
+                  key={value}
+                  onClick={() => {
+                    setStatus(value);
+                    setVisibleCount(8);
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
-          {channel === "paid" &&
-            state.paidAds.map((ad) => (
-              <button
-                className="comfortable-table-row"
-                key={ad.id}
-                onClick={() => navigate("/app/channels/paid/manage")}
-              >
-                <span>
-                  <strong>{ad.name}</strong>
-                  <small>{ad.platform}</small>
-                </span>
-                <span>{ad.objective}</span>
-                <span>
-                  <Badge value={ad.state} />
-                </span>
-                <span>{ad.dateRange}</span>
-              </button>
-            ))}
-          {content.map((item) => {
-            const campaign = state.campaigns.find(
-              (candidate) => candidate.id === item.campaignId,
-            );
-            return (
-              <button
-                className="comfortable-table-row"
-                key={item.id}
-                onClick={() =>
-                  navigate(`/app/campaigns/${item.campaignId}/content`)
-                }
-              >
-                <span>
-                  <strong>{item.title}</strong>
-                  <small>{item.channel}</small>
-                </span>
-                <span>{campaign?.title ?? "Campaign"}</span>
-                <span>
-                  <Badge value={item.state} />
-                </span>
-                <span>{date(item.scheduledAt)}</span>
-              </button>
-            );
-          })}
+          <div className="channel-visual-grid">
+            {channel === "paid" &&
+              state.paidAds.slice(0, visibleCount).map((ad) => {
+                const creative = ad.creative[0];
+                return (
+                  <article className="card channel-visual-card" key={ad.id}>
+                    <div className="channel-visual-card-head">
+                      <span>
+                        <strong>{ad.name}</strong>
+                        <small>{ad.platform} · {ad.dateRange}</small>
+                      </span>
+                      <Badge value={ad.state} />
+                    </div>
+                    <div className="channel-card-preview">
+                      <AssetPreview
+                        asset={{
+                          channel: ad.platform,
+                          type: "Paid Ad",
+                          title: creative?.headline ?? ad.name,
+                          body: creative?.body ?? ad.objective,
+                        }}
+                        brandName={state.brand.name}
+                        media={state.media.find((item) => item.approvedForAi)}
+                      />
+                    </div>
+                    <footer>
+                      <span>{ad.objective} · {money(ad.budget, state.workspace.currency)}</span>
+                      <button
+                        className="text-button"
+                        onClick={() => navigate("/app/channels/paid/manage")}
+                      >
+                        Review campaign <ArrowRight />
+                      </button>
+                    </footer>
+                  </article>
+                );
+              })}
+            {content.slice(0, visibleCount).map((item) => {
+              const campaign = state.campaigns.find(
+                (candidate) => candidate.id === item.campaignId,
+              );
+              const variables = campaign?.plan.variables ?? {};
+              const media = state.media.find(
+                (candidate) => candidate.id === variables.productAssetId,
+              );
+              return (
+                <article className="card channel-visual-card" key={item.id}>
+                  <div className="channel-visual-card-head">
+                    <span>
+                      <strong>{item.title}</strong>
+                      <small>{campaign?.title ?? "Campaign"} · {item.channel}</small>
+                    </span>
+                    <Badge value={item.state} />
+                  </div>
+                  <div className="channel-card-preview">
+                    <AssetPreview
+                      asset={item}
+                      brandName={state.brand.name}
+                      media={media}
+                      variables={variables}
+                    />
+                  </div>
+                  <footer>
+                    <span>{date(item.scheduledAt)} · Version {item.version}</span>
+                    <button
+                      className="text-button"
+                      onClick={() =>
+                        navigate(`/app/campaigns/${item.campaignId}/content`)
+                      }
+                    >
+                      Review {config.singular.toLowerCase()} <ArrowRight />
+                    </button>
+                  </footer>
+                </article>
+              );
+            })}
+          </div>
+          {content.length > visibleCount && (
+            <button
+              className="button secondary channel-load-more"
+              onClick={() => setVisibleCount((value) => value + 8)}
+            >
+              Show more {config.noun.toLowerCase()}
+            </button>
+          )}
           {!content.length && channel !== "paid" && (
             <Empty
               icon={iconMap[config.icon]}
-              title={`No ${config.noun.toLowerCase()} yet`}
-              text="Choose a template to create your first coordinated campaign."
+              title={query || status !== "all" ? "No matching work" : `No ${config.noun.toLowerCase()} yet`}
+              text={
+                query || status !== "all"
+                  ? "Try another search or status."
+                  : "Choose a template to create your first coordinated campaign."
+              }
               action={
-                <button
-                  className="button primary"
-                  onClick={() => navigate(`/app/campaigns/new/${channel}`)}
-                >
-                  Choose a template
-                </button>
+                !query && status === "all" ? (
+                  <button
+                    className="button primary"
+                    onClick={() => navigate(`/app/campaigns/new/${channel}`)}
+                  >
+                    Choose a template
+                  </button>
+                ) : undefined
               }
             />
           )}
@@ -1471,28 +1700,36 @@ function ChannelWorkspace({
       )}
 
       {tab === "templates" && (
-        <section className="simple-template-grid" role="tabpanel">
+        <section className="simple-template-grid channel-template-grid" role="tabpanel">
           {templates.slice(0, 6).map((template) => (
-            <button
-              className="card simple-template-card"
-              key={template.id}
-              onClick={() => navigate(`/app/campaigns/new/${channel}`)}
-            >
-              <span>{template.occasion}</span>
-              <h3>{template.name}</h3>
-              <p>{template.description}</p>
-              <dl>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>{template.durationDays} days</dd>
-                </div>
-                <div>
-                  <dt>Assets</dt>
-                  <dd>{template.assets.length}</dd>
-                </div>
-              </dl>
-              <small>{template.channels.join(" · ")}</small>
-            </button>
+            <article className="card channel-template-preview-card" key={template.id}>
+              <div className="channel-card-preview">
+                <AssetPreview
+                  asset={
+                    template.assets.find(
+                      (asset) => classifyChannel(`${asset.channel} ${asset.type}`) === channel,
+                    ) ?? template.assets[0]
+                  }
+                  brandName={state.brand.name}
+                  media={state.media.find((item) => item.approvedForAi)}
+                  variableLabels={Object.fromEntries(
+                    template.variables.map((item) => [item.key, item.label]),
+                  )}
+                />
+              </div>
+              <div>
+                <span>{template.occasion}</span>
+                <h3>{template.name}</h3>
+                <p>{template.description}</p>
+                <small>{template.durationDays} days · {template.assets.length} assets</small>
+                <button
+                  className="button secondary full"
+                  onClick={() => navigate(`/app/campaigns/new/${channel}`)}
+                >
+                  Preview full campaign <ArrowRight />
+                </button>
+              </div>
+            </article>
           ))}
         </section>
       )}
@@ -1503,7 +1740,7 @@ function ChannelWorkspace({
             <div>
               <span>Impressions</span>
               <strong>{compact(totals.impressions)}</strong>
-              <small>Across {content.length} items</small>
+              <small>Across {channelContent.length} items</small>
             </div>
             <div>
               <span>Clicks</span>
@@ -1615,6 +1852,16 @@ function Integrations({
           </button>
         }
       />
+      <section className="activation-shortcut">
+        <span className="readiness-icon"><RefreshCw /></span>
+        <span>
+          <strong>Connections & data syncs work together</strong>
+          <small>Connections authorize the destination. Syncs show exactly what was delivered, filtered, or retried.</small>
+        </span>
+        <button className="text-button" onClick={() => navigate("/app/syncs")}>
+          View data syncs <ArrowRight />
+        </button>
+      </section>
       <div className="tabs-line">
         <button
           className={view === "connected" ? "active" : ""}
@@ -2674,6 +2921,8 @@ function Campaigns({
     "All" | "Active" | "Drafts" | "Completed"
   >("All");
   const [channel, setChannel] = useState<ChannelKey | "all">("all");
+  const [query, setQuery] = useState("");
+  const [visibleCount, setVisibleCount] = useState(12);
   const matchesStatus = (campaign: AppState["campaigns"][number]) => {
     if (filter === "All") return true;
     if (filter === "Drafts") return campaign.state === "DRAFT";
@@ -2690,7 +2939,10 @@ function Campaigns({
     (campaign) =>
       matchesStatus(campaign) &&
       (channel === "all" ||
-        campaign.channels.some((item) => classifyChannel(item) === channel)),
+        campaign.channels.some((item) => classifyChannel(item) === channel)) &&
+      `${campaign.title} ${campaign.summary} ${campaign.channels.join(" ")}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()),
   );
 
   return (
@@ -2707,6 +2959,21 @@ function Campaigns({
           </button>
         }
       />
+      <div className="campaign-search-row">
+        <div className="search-box">
+          <Search />
+          <input
+            aria-label="Search campaigns"
+            placeholder="Search campaigns"
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setVisibleCount(12);
+            }}
+          />
+        </div>
+        <span>{items.length} campaign{items.length === 1 ? "" : "s"}</span>
+      </div>
       <div className="campaign-filter-row">
         <div className="segmented" aria-label="Campaign status">
           {(["All", "Active", "Drafts", "Completed"] as const).map((item) => (
@@ -2739,7 +3006,7 @@ function Campaigns({
       </div>
 
       <section className="card campaign-comfortable-list">
-        {items.map((campaign) => (
+        {items.slice(0, visibleCount).map((campaign) => (
           <button
             key={campaign.id}
             className="campaign-comfortable-row"
@@ -2783,6 +3050,14 @@ function Campaigns({
           />
         )}
       </section>
+      {items.length > visibleCount && (
+        <button
+          className="button secondary campaign-load-more"
+          onClick={() => setVisibleCount((value) => value + 12)}
+        >
+          Show more campaigns
+        </button>
+      )}
     </div>
   );
 }
@@ -2806,6 +3081,9 @@ function CampaignCreator({
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selected, setSelected] = useState<Template | null>(null);
   const [previewing, setPreviewing] = useState<Template | null>(null);
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templateCollection, setTemplateCollection] =
+    useState<TemplateCollectionKey>("recommended");
   const [campaignName, setCampaignName] = useState("");
   const [startDate, setStartDate] = useState("");
   const [variables, setVariables] = useState<Record<string, string>>({});
@@ -2835,11 +3113,36 @@ function CampaignCreator({
   );
   const selectedMedia = state.media.find((item) => item.id === selectedMediaId);
 
-  const filteredTemplates = initialChannel
+  const channelTemplates = initialChannel
     ? state.templates.filter((template) =>
         templateMatchesChannel(template, initialChannel),
       )
     : state.templates;
+  const recommendedTemplateOrder = [
+    "template-product-content-showcase",
+    "template-product-launch",
+    "template-winback",
+    "template-bfcm",
+  ];
+  const filteredTemplates = channelTemplates
+    .filter((template) => templateMatchesSearch(template, templateQuery))
+    .filter(
+      (template) =>
+        templateCollection === "all" ||
+        templateCollection === "recommended" ||
+        classifyTemplateCollection(template) === templateCollection,
+    )
+    .sort((left, right) => {
+      if (templateCollection !== "recommended") return 0;
+      const leftIndex = recommendedTemplateOrder.indexOf(left.id);
+      const rightIndex = recommendedTemplateOrder.indexOf(right.id);
+      return (
+        (leftIndex === -1 ? Number.MAX_SAFE_INTEGER : leftIndex) -
+        (rightIndex === -1 ? Number.MAX_SAFE_INTEGER : rightIndex)
+      );
+    })
+    .slice(0, templateCollection === "recommended" ? 3 : undefined);
+  const recommendedTemplateId = filteredTemplates[0]?.id;
 
   const recommendedStart = (template: Template) => {
     const seasonal: Record<string, string> = {
@@ -2939,6 +3242,58 @@ function CampaignCreator({
         previewKind(asset),
       ),
     ) ?? selected?.assets[0];
+  const selectedChannelStates =
+    selected?.channels.map((channelName) =>
+      channelConnectionState(state, channelName),
+    ) ?? [];
+  const connectedChannelCount = selectedChannelStates.filter(
+    (connectionState) => connectionState === "CONNECTED",
+  ).length;
+  const requiredTemplateValuesMissing =
+    selected?.variables.filter(
+      (item) => item.required && !variables[item.key]?.trim(),
+    ).length ?? 0;
+  const creatorReadiness: ReadinessItem[] = selected
+    ? [
+        {
+          label: "Creative review",
+          detail: reviewConfirmed
+            ? `${selected.assets.length} visual assets reviewed`
+            : `Review all ${selected.assets.length} assets below`,
+          state: reviewConfirmed ? "ready" : "attention",
+        },
+        {
+          label: "Product media",
+          detail: selectedMedia
+            ? `${selectedMedia.name} will fill product placements`
+            : "A visible product placeholder still needs replacement",
+          state: selectedMedia ? "ready" : "attention",
+        },
+        {
+          label: "Campaign grounding",
+          detail: requiredTemplateValuesMissing
+            ? `${requiredTemplateValuesMissing} required value${requiredTemplateValuesMissing === 1 ? " is" : "s are"} missing`
+            : `All required fields complete · ${state.sources.length} approved sources available`,
+          state: requiredTemplateValuesMissing ? "attention" : "ready",
+        },
+        {
+          label: "Brand and consent",
+          detail: "Brand guardrails and destination consent remain enforced",
+          state: "protected",
+        },
+        {
+          label: "Destinations",
+          detail:
+            connectedChannelCount === selected.channels.length
+              ? `All ${connectedChannelCount} channel destinations are connected`
+              : `${connectedChannelCount} of ${selected.channels.length} destinations connected; finish setup before scheduling`,
+          state:
+            connectedChannelCount === selected.channels.length
+              ? "ready"
+              : "attention",
+        },
+      ]
+    : [];
 
   return (
     <div className="page focused-creator-page">
@@ -2999,15 +3354,50 @@ function CampaignCreator({
                   </button>
                 )}
               </div>
+              <div className="template-discovery">
+                <div className="search-box template-search-box">
+                  <Search />
+                  <input
+                    aria-label="Search campaign templates"
+                    placeholder="Search by goal, channel, or occasion"
+                    value={templateQuery}
+                    onChange={(event) => setTemplateQuery(event.target.value)}
+                  />
+                </div>
+                <div className="template-collection-chips" aria-label="Template collections">
+                  {templateCollections.map((collection) => (
+                    <button
+                      className={templateCollection === collection.key ? "active" : ""}
+                      key={collection.key}
+                      onClick={() => setTemplateCollection(collection.key)}
+                    >
+                      {collection.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {templateCollection === "recommended" && !templateQuery && (
+                <div className="template-recommendation-note">
+                  <Sparkles />
+                  <span>
+                    <strong>Best matches for {state.brand.name}</strong>
+                    <small>
+                      Prioritized from your approved product media, connected channels, and reusable campaign goals.
+                    </small>
+                  </span>
+                </div>
+              )}
               <div className="focused-template-grid">
                 {filteredTemplates.map((template) => (
                   <article
-                    className="card focused-template-card"
+                    className={`card focused-template-card ${template.id === recommendedTemplateId && templateCollection === "recommended" ? "best-match" : ""}`}
                     key={template.id}
                   >
                     <div>
                       <span className="template-outcome">
-                        {template.occasion}
+                        {template.id === recommendedTemplateId && templateCollection === "recommended"
+                          ? "Best match"
+                          : template.occasion}
                       </span>
                       <h3>{template.name}</h3>
                       <p>{template.description}</p>
@@ -3048,6 +3438,24 @@ function CampaignCreator({
                   </article>
                 ))}
               </div>
+              {!filteredTemplates.length && (
+                <Empty
+                  icon={<Search />}
+                  title="No templates match"
+                  text="Try another phrase or choose a different collection."
+                  action={
+                    <button
+                      className="button secondary"
+                      onClick={() => {
+                        setTemplateQuery("");
+                        setTemplateCollection("all");
+                      }}
+                    >
+                      Show all templates
+                    </button>
+                  }
+                />
+              )}
               <button
                 className="custom-ai-option"
                 onClick={() => setMode("custom")}
@@ -3289,6 +3697,7 @@ function CampaignCreator({
                 {timingNote && <p>Timing note: {timingNote}</p>}
                 <p>Audience: {selected.audience}</p>
               </details>
+              <ReadinessPanel items={creatorReadiness} />
               <div className="campaign-review-confirmation">
                 <input
                   id="confirm-campaign-review"
@@ -3566,6 +3975,60 @@ function CampaignWorkspace({
     }),
     { impressions: 0, clicks: 0, conversions: 0 },
   );
+  const readyContentCount = content.filter((item) =>
+    ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(item.state),
+  ).length;
+  const scheduledContentCount = content.filter(
+    (item) => item.scheduledAt || item.state === "PUBLISHED",
+  ).length;
+  const connectedDestinations = campaign.channels.filter(
+    (channelName) => channelConnectionState(state, channelName) === "CONNECTED",
+  ).length;
+  const campaignReadiness: ReadinessItem[] = [
+    {
+      label: "Creative",
+      detail: `${content.length} visual asset${content.length === 1 ? "" : "s"} available for review`,
+      state: content.length ? "ready" : "attention",
+    },
+    {
+      label: "Human approval",
+      detail:
+        readyContentCount === content.length && content.length
+          ? "Every asset has cleared its required decision"
+          : `${readyContentCount} of ${content.length} assets approved or published`,
+      state:
+        readyContentCount === content.length && content.length
+          ? "ready"
+          : "attention",
+    },
+    {
+      label: "Schedule",
+      detail:
+        scheduledContentCount === content.length && content.length
+          ? "Every asset has a publishing time"
+          : `${scheduledContentCount} of ${content.length} assets scheduled`,
+      state:
+        scheduledContentCount === content.length && content.length
+          ? "ready"
+          : "attention",
+    },
+    {
+      label: "Audience protection",
+      detail: "Consent and suppression rules apply at every destination",
+      state: "protected",
+    },
+    {
+      label: "Destinations",
+      detail:
+        connectedDestinations === campaign.channels.length
+          ? "Every campaign channel is connected"
+          : `${connectedDestinations} of ${campaign.channels.length} destinations connected`,
+      state:
+        connectedDestinations === campaign.channels.length
+          ? "ready"
+          : "attention",
+    },
+  ];
   const openEdit = (item: ContentItem) => {
     setEditing(item);
     setBody(item.body);
@@ -3675,6 +4138,7 @@ function CampaignWorkspace({
               toneName="amber"
             />
           </section>
+          <ReadinessPanel items={campaignReadiness} compact />
           <div className="overview-columns">
             <section className="card overview-detail-card">
               <h2>Campaign brief</h2>
@@ -4368,6 +4832,44 @@ function ApprovalsView({
   const reviewMedia = state.media.find(
     (item) => item.id === reviewVariables.productAssetId,
   );
+  const reviewDestinationState = reviewContent
+    ? channelConnectionState(state, reviewContent.channel)
+    : "MISSING";
+  const reviewReadiness: ReadinessItem[] = reviewContent
+    ? [
+        {
+          label: "Visual and copy",
+          detail: `Platform preview reflects version ${reviewContent.version}`,
+          state: "ready",
+        },
+        {
+          label: "Brand guardrails",
+          detail: "Voice aligned and no prohibited claims detected",
+          state: "protected",
+        },
+        {
+          label: "Audience consent",
+          detail: "Eligibility is rechecked before any destination write",
+          state: "protected",
+        },
+        {
+          label: "Destination",
+          detail:
+            reviewDestinationState === "CONNECTED"
+              ? `${reviewContent.channel} is connected`
+              : `${reviewContent.channel} connection needs review before publishing`,
+          state:
+            reviewDestinationState === "CONNECTED" ? "ready" : "attention",
+        },
+        {
+          label: "Publishing time",
+          detail: reviewContent.scheduledAt
+            ? `Scheduled for ${date(reviewContent.scheduledAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+            : "No publishing time set yet",
+          state: reviewContent.scheduledAt ? "ready" : "attention",
+        },
+      ]
+    : [];
   const decide = async (
     decision: "APPROVED" | "REJECTED" | "CHANGES_REQUESTED",
   ) => {
@@ -4544,18 +5046,11 @@ function ApprovalsView({
             )}
           </div>
           <aside>
-            <h3>Ready-to-publish checks</h3>
-            <div className="brand-checks vertical">
-              <span>
-                <CheckCircle2 /> Voice aligned
-              </span>
-              <span>
-                <CheckCircle2 /> No prohibited claims
-              </span>
-              <span>
-                <CheckCircle2 /> Consent eligible
-              </span>
-            </div>
+            <ReadinessPanel
+              title="Ready-to-publish checks"
+              items={reviewReadiness}
+              compact
+            />
             <label>
               Reviewer comment
               <textarea
@@ -4605,10 +5100,18 @@ function AudiencesView({
   ) => Promise<ActionResult<T>>;
 }) {
   const [builder, setBuilder] = useState(false);
+  const [inspecting, setInspecting] = useState<AppState["audiences"][number] | null>(null);
   const [name, setName] = useState("High-intent trials");
   const [description, setDescription] = useState(
     "Trial users active in the last 14 days with valid marketing consent.",
   );
+  const comparisonAudience = state.audiences.find(
+    (audience) => audience.id !== inspecting?.id,
+  );
+  const estimatedOverlap =
+    inspecting && comparisonAudience
+      ? Math.round(Math.min(inspecting.size, comparisonAudience.size) * 0.14)
+      : 0;
   return (
     <div className="page">
       <PageHeader
@@ -4643,6 +5146,13 @@ function AudiencesView({
           toneName="amber"
         />
       </div>
+      <section className="audience-safeguard-strip" aria-label="Audience safeguards">
+        <span>
+          <ShieldCheck />
+          <strong>Audience safeguards are active</strong>
+        </span>
+        <small>Consent filtering, overlap previews, and destination eligibility are checked before activation.</small>
+      </section>
       <div className="audience-card-grid">
         {state.audiences.map((audience) => (
           <article className="card audience-card" key={audience.id}>
@@ -4668,13 +5178,116 @@ function AudiencesView({
             </div>
             <footer>
               <span>{audience.destinations.length} eligible destinations</span>
-              <button>
+              <button onClick={() => setInspecting(audience)}>
                 Open builder <ArrowRight />
               </button>
             </footer>
           </article>
         ))}
       </div>
+      <Modal
+        open={Boolean(inspecting)}
+        onClose={() => setInspecting(null)}
+        title={inspecting?.name ?? "Audience insights"}
+        eyebrow="Preview before activation"
+        wide
+      >
+        {inspecting && (
+          <>
+            <div className="modal-body audience-insights-layout">
+              <section>
+                <div className="audience-insight-metrics">
+                  <div>
+                    <span>Eligible people</span>
+                    <strong>{compact(inspecting.size)}</strong>
+                  </div>
+                  <div>
+                    <span>Consent filtered</span>
+                    <strong>{compact(inspecting.excluded)}</strong>
+                  </div>
+                  <div>
+                    <span>Destinations</span>
+                    <strong>{inspecting.destinations.length}</strong>
+                  </div>
+                </div>
+                <div className="audience-breakdown card">
+                  <div className="section-heading">
+                    <div>
+                      <h3>Audience composition</h3>
+                      <p>Estimated from the current customer profile model.</p>
+                    </div>
+                  </div>
+                  {[
+                    ["High product intent", 46],
+                    ["Recently active", 34],
+                    ["Returning evaluators", 20],
+                  ].map(([label, percentage]) => (
+                    <div className="audience-breakdown-row" key={String(label)}>
+                      <span>{label}</span>
+                      <span><i style={{ width: `${percentage}%` }} /></span>
+                      <strong>{percentage}%</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <aside>
+                <div className="audience-overlap-card">
+                  <span className="readiness-icon"><Users /></span>
+                  <h3>Overlap preview</h3>
+                  {comparisonAudience ? (
+                    <>
+                      <strong>{compact(estimatedOverlap)} people</strong>
+                      <p>
+                        Also qualify for {comparisonAudience.name}. That is an estimated 14% overlap.
+                      </p>
+                      <small>
+                        Recommended: prioritize {inspecting.name} first so each person receives one clear campaign treatment.
+                      </small>
+                    </>
+                  ) : (
+                    <p>No other comparable audience is active.</p>
+                  )}
+                </div>
+                <div className="audience-destination-list">
+                  <strong>Eligible destinations</strong>
+                  {inspecting.destinations.map((destination) => (
+                    <span key={destination}><CheckCircle2 /> {destination}</span>
+                  ))}
+                </div>
+                <ReadinessPanel
+                  title="Activation checks"
+                  compact
+                  items={[
+                    {
+                      label: "Audience definition",
+                      detail: `${inspecting.rules.length} reusable qualification rules`,
+                      state: "ready",
+                    },
+                    {
+                      label: "Consent",
+                      detail: `${inspecting.excluded} ineligible records protected`,
+                      state: "protected",
+                    },
+                    {
+                      label: "Overlap",
+                      detail: comparisonAudience
+                        ? "Priority recommended before activation"
+                        : "No competing audience detected",
+                      state: comparisonAudience ? "attention" : "ready",
+                    },
+                  ]}
+                />
+              </aside>
+            </div>
+            <footer className="modal-footer">
+              <span>Audience membership is previewed before any downstream write.</span>
+              <button className="button primary" onClick={() => setInspecting(null)}>
+                Done
+              </button>
+            </footer>
+          </>
+        )}
+      </Modal>
       <Modal
         open={builder}
         onClose={() => setBuilder(false)}
@@ -4801,6 +5414,12 @@ function SyncsView({
 }) {
   const [builder, setBuilder] = useState(false);
   const [step, setStep] = useState(1);
+  const [inspectingSyncId, setInspectingSyncId] = useState<string | null>(null);
+  const inspectingSync = state.syncs.find((sync) => sync.id === inspectingSyncId);
+  const inspectingRuns = state.syncRuns.filter(
+    (run) => run.syncId === inspectingSyncId,
+  );
+  const inspectingRun = inspectingRuns[0];
   return (
     <div className="page">
       <PageHeader
@@ -4876,8 +5495,15 @@ function SyncsView({
                     {run && `${run.rejected} filtered · ${run.duration}`}
                   </small>
                 </span>
-                <span>
-                  {run?.state === "FAILED" ? (
+                <span className="sync-row-actions">
+                  <button
+                    className="icon-button"
+                    aria-label={`Inspect ${sync.name}`}
+                    onClick={() => setInspectingSyncId(sync.id)}
+                  >
+                    <Activity />
+                  </button>
+                  {run?.state === "FAILED" && (
                     <button
                       className="button small-button"
                       onClick={() =>
@@ -4888,10 +5514,6 @@ function SyncsView({
                       }
                     >
                       <RefreshCw /> Retry
-                    </button>
-                  ) : (
-                    <button className="icon-button">
-                      <MoreHorizontal />
                     </button>
                   )}
                 </span>
@@ -4956,6 +5578,114 @@ function SyncsView({
           </div>
         </section>
       </div>
+      <Modal
+        open={Boolean(inspectingSync)}
+        onClose={() => setInspectingSyncId(null)}
+        title={inspectingSync?.name ?? "Sync diagnostics"}
+        eyebrow="Delivery debugger"
+        wide
+      >
+        {inspectingSync && (
+          <>
+            <div className="modal-body sync-diagnostics-layout">
+              <section>
+                <div className="sync-diagnostic-flow">
+                  <span><Database /></span>
+                  <strong>{inspectingSync.source}</strong>
+                  <ArrowRight />
+                  <span><Link2 /></span>
+                  <strong>{inspectingSync.destination}</strong>
+                </div>
+                <div className="sync-diagnostic-metrics">
+                  <div>
+                    <span>Queried</span>
+                    <strong>{compact(inspectingRun?.queried ?? 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Accepted</span>
+                    <strong>{compact(inspectingRun?.accepted ?? 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Filtered</span>
+                    <strong>{compact(inspectingRun?.rejected ?? 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Duration</span>
+                    <strong>{inspectingRun?.duration ?? "—"}</strong>
+                  </div>
+                </div>
+                <div className="card rejection-breakdown">
+                  <h3>Why records were filtered</h3>
+                  {[
+                    ["Consent not granted", Math.round((inspectingRun?.rejected ?? 0) * 0.62)],
+                    ["Suppression rule", Math.round((inspectingRun?.rejected ?? 0) * 0.25)],
+                    ["Missing destination field", Math.round((inspectingRun?.rejected ?? 0) * 0.13)],
+                  ].map(([label, count]) => (
+                    <div key={String(label)}>
+                      <span>{label}</span>
+                      <strong>{compact(Number(count))}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+              <aside>
+                <ReadinessPanel
+                  title="Current delivery health"
+                  compact
+                  items={[
+                    {
+                      label: "Latest run",
+                      detail: inspectingRun?.error ?? `${compact(inspectingRun?.accepted ?? 0)} records delivered`,
+                      state: inspectingRun?.state === "FAILED" ? "attention" : "ready",
+                    },
+                    {
+                      label: "Consent rules",
+                      detail: inspectingSync.consent.length
+                        ? inspectingSync.consent.join(" · ")
+                        : "Workspace defaults applied",
+                      state: "protected",
+                    },
+                    {
+                      label: "Schedule",
+                      detail: inspectingSync.schedule,
+                      state: "ready",
+                    },
+                  ]}
+                />
+                <details className="technical-response">
+                  <summary>Technical response</summary>
+                  <dl>
+                    <div><dt>Status</dt><dd>{inspectingRun?.state ?? "No run"}</dd></div>
+                    <div><dt>Operation</dt><dd>{inspectingSync.operation}</dd></div>
+                    <div><dt>Provider code</dt><dd><code>{inspectingRun?.state === "FAILED" ? "429_RATE_LIMIT" : "200_ACCEPTED"}</code></dd></div>
+                    <div><dt>Started</dt><dd>{date(inspectingRun?.startedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</dd></div>
+                  </dl>
+                </details>
+              </aside>
+            </div>
+            <footer className="modal-footer split-footer">
+              <span>Retrying is idempotent: already accepted records are not duplicated.</span>
+              <div>
+                <button className="button ghost" onClick={() => setInspectingSyncId(null)}>Close</button>
+                {inspectingRun?.state === "FAILED" && (
+                  <button
+                    className="button primary"
+                    onClick={async () => {
+                      await runAction(
+                        { type: "retrySync", syncId: inspectingSync.id },
+                        "Sync retry completed successfully",
+                      );
+                      setInspectingSyncId(null);
+                    }}
+                  >
+                    <RefreshCw /> Retry safely
+                  </button>
+                )}
+              </div>
+            </footer>
+          </>
+        )}
+      </Modal>
       <Modal
         open={builder}
         onClose={() => setBuilder(false)}
@@ -5778,7 +6508,7 @@ function InsightsView({
           {state.insights.slice(0, 3).map((insight) => (
             <article className="card" key={insight.id}>
               <span className="confidence-copy">
-                {Math.round(insight.confidence * 100)}% confidence
+                {confidencePercent(insight.confidence)}% confidence
               </span>
               <h3>{insight.title}</h3>
               <p>{insight.evidence}</p>
