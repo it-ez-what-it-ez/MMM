@@ -15,6 +15,13 @@
       "when": 1786833788297,
       "tag": "0001_shallow_tigra",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787428267789,
+      "tag": "0002_wild_genesis",
+      "breakpoints": true
     }
   ]
 }

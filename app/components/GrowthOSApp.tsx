@@ -58,6 +58,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { instantiateCampaignTemplate } from "@/lib/campaign-templates";
 import {
   channelKeys,
   channelNavigation,
@@ -107,6 +108,7 @@ const iconMap: Record<string, ReactNode> = {
   social: <Send />,
   messaging: <MessageSquareText />,
   web: <Globe2 />,
+  agent: <Sparkles />,
 };
 
 const roleLabels: Record<Role, string> = {
@@ -796,7 +798,8 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "/") {
         event.preventDefault();
-        setAssistantOpen(true);
+        window.history.pushState({}, "", "/app/agent");
+        setPath("/app/agent");
       }
     };
     document.addEventListener("keydown", shortcuts);
@@ -873,6 +876,14 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
     if (routedPath === "/app")
       return (
         <Dashboard state={state} navigate={navigate} runAction={runAction} />
+      );
+    if (routedPath === "/app/agent")
+      return (
+        <AgentWorkspace
+          state={state}
+          navigate={navigate}
+          runAction={runAction}
+        />
       );
     if (routedPath === "/app/channels/paid/manage")
       return <PaidAdsView state={state} runAction={runAction} />;
@@ -1119,7 +1130,7 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           <div className="topbar-actions">
             <button
               className="button ask-growthos"
-              onClick={() => setAssistantOpen(true)}
+              onClick={() => navigate("/app/agent")}
             >
               <Sparkles /> Ask GrowthOS
             </button>
@@ -1183,6 +1194,455 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           {toast.tone === "success" ? <CheckCircle2 /> : <XCircle />}
           {toast.message}
         </div>
+      )}
+    </div>
+  );
+}
+
+function AgentWorkspace({
+  state,
+  navigate,
+  runAction,
+}: {
+  state: AppState;
+  navigate: (path: string) => void;
+  runAction: <T>(
+    payload: ActionPayload,
+    success: string,
+  ) => Promise<ActionResult<T>>;
+}) {
+  const [objective, setObjective] = useState(
+    "Re-engage inactive trial users with a focused email and paid retargeting campaign.",
+  );
+  const [mode, setMode] = useState<
+    "LIFECYCLE" | "PERFORMANCE" | "CROSS_CHANNEL"
+  >("CROSS_CHANNEL");
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
+  const [working, setWorking] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const activeRun = selectedRunId
+    ? state.agentRuns.find((run) => run.id === selectedRunId)
+    : state.agentRuns.find((run) => run.status === "READY_FOR_REVIEW");
+  const proposal = activeRun?.proposal;
+  const template = proposal
+    ? state.templates.find((item) => item.id === proposal.templateId)
+    : undefined;
+  const preview =
+    proposal && template
+      ? instantiateCampaignTemplate(template, {
+          brandName: state.brand.name,
+          startDate: proposal.startDate,
+          variables: proposal.variables,
+        })
+      : undefined;
+  const media =
+    state.media.find(
+      (item) => item.approvedForAi && item.tags.includes("product"),
+    ) ?? state.media.find((item) => item.approvedForAi);
+  const canOperate = ["OWNER", "ADMIN", "MARKETER"].includes(
+    state.currentUser.role,
+  );
+
+  const startRun = async () => {
+    setWorking(true);
+    setConfirmed(false);
+    const result = await runAction<{ runId: string }>(
+      { type: "startAgentRun", objective, mode },
+      "Agent proposal is ready for review",
+    );
+    if (result.ok) setSelectedRunId(result.data.runId);
+    setWorking(false);
+  };
+  const executeRun = async () => {
+    if (!activeRun) return;
+    setWorking(true);
+    const result = await runAction<{
+      campaignId: string;
+      paidAdId?: string;
+    }>(
+      { type: "executeAgentRun", runId: activeRun.id, confirmed: true },
+      "Campaign drafts built; nothing was published",
+    );
+    setWorking(false);
+    if (result.ok)
+      navigate(`/app/campaigns/${result.data.campaignId}/content`);
+  };
+
+  return (
+    <div className="page agent-page">
+      <PageHeader
+        title="Agent workspace"
+        description="Give GrowthOS an outcome. It will use your live marketing context to plan the work, show its evidence, and stop for your approval before it acts."
+      />
+
+      <section className="card agent-brief-card">
+        <div className="agent-brief-copy">
+          <span className="agent-orb">
+            <WandSparkles />
+          </span>
+          <div>
+            <h2>What outcome should the agent own?</h2>
+            <p>
+              One clear business outcome is enough. The agent chooses an
+              audience, campaign structure, creative bundle, and destinations.
+            </p>
+          </div>
+        </div>
+        <label className="agent-objective-field">
+          <span>Marketing outcome</span>
+          <textarea
+            rows={3}
+            value={objective}
+            onChange={(event) => setObjective(event.target.value)}
+          />
+        </label>
+        <fieldset className="agent-mode-picker">
+          <legend>Choose the agent&apos;s specialty</legend>
+          {[
+            [
+              "CROSS_CHANNEL",
+              "Cross-channel",
+              "Coordinate lifecycle, organic, and paid work.",
+            ],
+            [
+              "LIFECYCLE",
+              "Lifecycle",
+              "Plan email, SMS, push, and retention work.",
+            ],
+            [
+              "PERFORMANCE",
+              "Performance",
+              "Find paid-media opportunities and assemble ads.",
+            ],
+          ].map(([value, label, detail]) => (
+            <label className={mode === value ? "selected" : ""} key={value}>
+              <input
+                type="radio"
+                name="agent-mode"
+                value={value}
+                aria-label={`${label}: ${detail}`}
+                checked={mode === value}
+                onChange={() =>
+                  setMode(
+                    value as
+                      | "LIFECYCLE"
+                      | "PERFORMANCE"
+                      | "CROSS_CHANNEL",
+                  )
+                }
+              />
+              <span>
+                <strong>{label}</strong>
+                <small>{detail}</small>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <div className="agent-starters" aria-label="Suggested outcomes">
+          <span>Try an outcome</span>
+          {[
+            "Refresh paid creative that is losing performance",
+            "Launch a Black Friday campaign across our best channels",
+            "Win back inactive trials with email and SMS",
+          ].map((starter) => (
+            <button key={starter} onClick={() => setObjective(starter)}>
+              {starter}
+            </button>
+          ))}
+        </div>
+        <footer className="agent-brief-footer">
+          <span>
+            <ShieldCheck /> The agent can prepare drafts. Publishing and spend
+            still require human approval.
+          </span>
+          <button
+            className="button primary"
+            disabled={!canOperate || working || objective.trim().length < 12}
+            onClick={() => void startRun()}
+          >
+            {working ? <Loader2 className="spin" /> : <Sparkles />}
+            {working ? "Working through context…" : "Build campaign proposal"}
+          </button>
+        </footer>
+      </section>
+
+      {activeRun && proposal && (
+        <section className="agent-review-section">
+          <div className="agent-review-heading">
+            <div>
+              <span className="eyebrow">Human review checkpoint</span>
+              <h2>Review the agent&apos;s work</h2>
+              <p>
+                This is the exact campaign GrowthOS will build—not a vague
+                recommendation.
+              </p>
+            </div>
+            <Badge value={activeRun.status} />
+          </div>
+
+          <div className="agent-workbench">
+            <div className="agent-work-main">
+              <article className="card agent-plan-card">
+                <header>
+                  <div>
+                    <span>{human(activeRun.mode)} agent</span>
+                    <h3>{proposal.name}</h3>
+                    <p>{proposal.summary}</p>
+                  </div>
+                  <span className="agent-confidence">
+                    <strong>{proposal.forecast.confidence}%</strong>
+                    <small>confidence</small>
+                  </span>
+                </header>
+                <dl className="agent-plan-facts">
+                  <div>
+                    <dt>Audience</dt>
+                    <dd>{proposal.audience.name}</dd>
+                    <small>
+                      {compact(proposal.audience.eligible)} eligible after
+                      exclusions
+                    </small>
+                  </div>
+                  <div>
+                    <dt>Campaign</dt>
+                    <dd>{proposal.templateName}</dd>
+                    <small>{proposal.assetCount} editable drafts</small>
+                  </div>
+                  <div>
+                    <dt>Forecast</dt>
+                    <dd>
+                      {proposal.forecast.range} {proposal.forecast.primary}
+                    </dd>
+                    <small>{proposal.forecast.basis}</small>
+                  </div>
+                </dl>
+              </article>
+
+              <article className="card agent-trace-card">
+                <div className="section-heading">
+                  <div>
+                    <h3>What the agent did</h3>
+                    <p>Each tool call and decision is recorded with the run.</p>
+                  </div>
+                  <span>{activeRun.steps.length} steps</span>
+                </div>
+                <ol className="agent-trace">
+                  {activeRun.steps.map((step) => (
+                    <li key={step.id}>
+                      <span className="agent-step-state">
+                        <Check />
+                      </span>
+                      <div>
+                        <strong>{step.title}</strong>
+                        <p>{step.detail}</p>
+                        <small>{human(step.tool)}</small>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              </article>
+
+              <article className="card agent-evidence-card">
+                <div className="section-heading">
+                  <div>
+                    <h3>Evidence used</h3>
+                    <p>Recommendations are grounded in this workspace.</p>
+                  </div>
+                </div>
+                <div className="agent-evidence-grid">
+                  {proposal.evidence.map((item) => (
+                    <div className={item.tone.toLowerCase()} key={item.label}>
+                      <span>{item.label}</span>
+                      <strong>{item.value}</strong>
+                      <small>{item.source}</small>
+                    </div>
+                  ))}
+                </div>
+              </article>
+
+              {preview && (
+                <article className="card agent-creative-card">
+                  <div className="section-heading">
+                    <div>
+                      <h3>Creative the agent will create</h3>
+                      <p>
+                        Preview the first assets now. All {preview.assets.length}
+                        remain editable afterward.
+                      </p>
+                    </div>
+                    <button
+                      className="button secondary"
+                      onClick={() =>
+                        navigate(
+                          `/app/campaigns/templates?template=${proposal.templateId}`,
+                        )
+                      }
+                    >
+                      View template
+                    </button>
+                  </div>
+                  <div className="asset-preview-grid agent-preview-grid">
+                    {preview.assets.slice(0, 3).map((asset) => (
+                      <AssetPreview
+                        key={`${asset.channel}-${asset.title}`}
+                        asset={asset}
+                        brandName={state.brand.name}
+                        media={media}
+                        variables={proposal.variables}
+                      />
+                    ))}
+                  </div>
+                </article>
+              )}
+
+              <article className="card agent-destination-card">
+                <div className="section-heading">
+                  <div>
+                    <h3>Destinations</h3>
+                    <p>
+                      Connection problems never prevent draft creation and
+                      always block unsafe delivery.
+                    </p>
+                  </div>
+                </div>
+                <div className="agent-destination-list">
+                  {proposal.destinations.map((destination) => (
+                    <div key={destination.channel}>
+                      <span
+                        className={`destination-state ${destination.state.toLowerCase()}`}
+                      >
+                        {destination.state === "READY" ? (
+                          <CheckCircle2 />
+                        ) : (
+                          <AlertTriangle />
+                        )}
+                      </span>
+                      <span>
+                        <strong>{destination.channel}</strong>
+                        <small>{destination.provider}</small>
+                      </span>
+                      <p>{destination.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              </article>
+            </div>
+
+            <aside className="card agent-confirm-card">
+              {activeRun.status === "EXECUTED" ? (
+                <>
+                  <span className="agent-confirm-icon success">
+                    <CheckCircle2 />
+                  </span>
+                  <h3>Campaign built</h3>
+                  <p>
+                    Drafts are in the campaign workspace. No content was sent
+                    and any paid campaign remains paused.
+                  </p>
+                  <button
+                    className="button primary full"
+                    onClick={() =>
+                      activeRun.result &&
+                      navigate(
+                        `/app/campaigns/${activeRun.result.campaignId}/content`,
+                      )
+                    }
+                  >
+                    Review content <ArrowRight />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="agent-confirm-icon">
+                    <ShieldCheck />
+                  </span>
+                  <h3>Ready for your decision</h3>
+                  <p>Confirm only after the audience, creative, and plan look right.</p>
+                  <div className="agent-execution-list">
+                    <div>
+                      <Check />
+                      <span>
+                        <strong>Create campaign</strong>
+                        <small>{proposal.assetCount} editable drafts</small>
+                      </span>
+                    </div>
+                    {proposal.execution.createPaidAd && (
+                      <div>
+                        <Check />
+                        <span>
+                          <strong>Create provider ad</strong>
+                          <small>Paused with a {money(proposal.budget, state.workspace.currency)} budget cap</small>
+                        </span>
+                      </div>
+                    )}
+                    <div className="protected">
+                      <ShieldCheck />
+                      <span>
+                        <strong>Publish nothing</strong>
+                        <small>Approval and activation remain separate</small>
+                      </span>
+                    </div>
+                  </div>
+                  <details className="agent-guardrails">
+                    <summary>Guardrails applied</summary>
+                    <ul>
+                      {proposal.guardrails.map((guardrail) => (
+                        <li key={guardrail}>{guardrail}</li>
+                      ))}
+                    </ul>
+                  </details>
+                  <label className="agent-confirm-check">
+                    <input
+                      type="checkbox"
+                      aria-label="I reviewed this proposal"
+                      checked={confirmed}
+                      onChange={(event) => setConfirmed(event.target.checked)}
+                    />
+                    <span>
+                      <strong>I reviewed this proposal</strong>
+                      <small>
+                        Build the drafts exactly as shown. Do not publish.
+                      </small>
+                    </span>
+                  </label>
+                  <button
+                    className="button primary full"
+                    disabled={!confirmed || working || !canOperate}
+                    onClick={() => void executeRun()}
+                  >
+                    {working ? <Loader2 className="spin" /> : <WandSparkles />}
+                    {working ? "Building campaign…" : "Build campaign drafts"}
+                  </button>
+                </>
+              )}
+            </aside>
+          </div>
+        </section>
+      )}
+
+      {state.agentRuns.length > 0 && (
+        <details className="card agent-history">
+          <summary>Recent agent runs ({state.agentRuns.length})</summary>
+          <div>
+            {state.agentRuns.map((run) => (
+              <button
+                key={run.id}
+                onClick={() => {
+                  setSelectedRunId(run.id);
+                  setConfirmed(false);
+                }}
+              >
+                <span>
+                  <strong>{run.proposal.name}</strong>
+                  <small>
+                    {human(run.mode)} · {date(run.createdAt)}
+                  </small>
+                </span>
+                <Badge value={run.status} />
+              </button>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );
@@ -7064,6 +7524,7 @@ function CommandPalette({
   const [query, setQuery] = useState("");
   if (!open) return null;
   const allItems: Array<readonly [string, string, string]> = [
+    ["Agent workspace", "/app/agent", "agent"],
     ...primaryNavigation,
     ...channelNavigation,
     ...operationsNavigation,

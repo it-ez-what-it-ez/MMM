@@ -53,6 +53,10 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_audit_workspace_created ON audit_events(workspace_id, created_at)`,
   `CREATE TABLE IF NOT EXISTS operation_ledger (idempotency_key TEXT PRIMARY KEY, operation TEXT NOT NULL, external_id TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS marketing_agent_runs (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, created_by TEXT NOT NULL, mode TEXT NOT NULL, objective TEXT NOT NULL, status TEXT NOT NULL, selected_template_id TEXT NOT NULL, proposal_json TEXT NOT NULL, result_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_agent_runs_workspace_created ON marketing_agent_runs(workspace_id, created_at)`,
+  `CREATE TABLE IF NOT EXISTS marketing_agent_steps (id TEXT PRIMARY KEY, run_id TEXT NOT NULL, position INTEGER NOT NULL, tool TEXT NOT NULL, title TEXT NOT NULL, detail TEXT NOT NULL, state TEXT NOT NULL, output_json TEXT NOT NULL, created_at TEXT NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_steps_run_position ON marketing_agent_steps(run_id, position)`,
 ];
 
 const json = JSON.stringify;
@@ -1374,6 +1378,8 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
     media,
     sources,
     learning,
+    agentRuns,
+    agentSteps,
   ] = await Promise.all([
     rows("SELECT * FROM workspaces LIMIT 1"),
     rows(
@@ -1399,6 +1405,12 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
     rows("SELECT * FROM source_materials ORDER BY created_at DESC"),
     rows(
       "SELECT * FROM learning_preferences ORDER BY explicit DESC, evidence_count DESC",
+    ),
+    rows(
+      "SELECT * FROM marketing_agent_runs ORDER BY created_at DESC LIMIT 20",
+    ),
+    rows(
+      "SELECT * FROM marketing_agent_steps ORDER BY run_id, position",
     ),
   ]);
   const users = userRows.map((r) => ({
@@ -1615,6 +1627,36 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
       value: String(r.value),
       evidenceCount: Number(r.evidence_count),
       explicit: Boolean(r.explicit),
+    })),
+    agentRuns: agentRuns.map((r) => ({
+      id: String(r.id),
+      createdBy: String(r.created_by),
+      mode: String(r.mode) as
+        | "LIFECYCLE"
+        | "PERFORMANCE"
+        | "CROSS_CHANNEL",
+      objective: String(r.objective),
+      status: String(r.status) as
+        | "READY_FOR_REVIEW"
+        | "EXECUTED"
+        | "FAILED",
+      selectedTemplateId: String(r.selected_template_id),
+      proposal: parse(r.proposal_json),
+      result: r.result_json ? parse(r.result_json) : undefined,
+      steps: agentSteps
+        .filter((step) => String(step.run_id) === String(r.id))
+        .map((step) => ({
+          id: String(step.id),
+          position: Number(step.position),
+          tool: String(step.tool),
+          title: String(step.title),
+          detail: String(step.detail),
+          state: String(step.state) as "COMPLETED" | "BLOCKED",
+          output: parse(step.output_json),
+          createdAt: String(step.created_at),
+        })),
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at),
     })),
   };
 }

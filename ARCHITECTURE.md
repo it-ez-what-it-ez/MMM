@@ -11,6 +11,7 @@ Browser UI
   ├─ POST /api/identity ───────────┤        │
   ├─ POST /api/brand/import ───────┤        ├─ AIProvider
   └─ POST /api/media ──────────────┘        ├─ IntegrationAdapter
+                                             ├─ MarketingAgent + tools
                                              └─ R2
 ```
 
@@ -18,7 +19,7 @@ The browser never receives provider credentials, direct database access, or an a
 
 ## Data model
 
-`db/schema.ts` defines the relational model for workspaces, members, demo sessions, brand profiles, integrations, connections, campaign templates and template-use history, campaigns, immutable content versions, approvals, comments, audiences, syncs and runs, paid ads, metrics, recommendations, preferences, media, source material, operation ledger entries, jobs, and audit events.
+`db/schema.ts` defines the relational model for workspaces, members, demo sessions, brand profiles, integrations, connections, campaign templates and template-use history, campaigns, immutable content versions, approvals, comments, audiences, syncs and runs, paid ads, metrics, recommendations, preferences, media, source material, durable marketing-agent runs and tool steps, operation ledger entries, jobs, and audit events.
 
 Flexible campaign plans, provider capabilities, voice settings, and nested audience rules are stored as JSON after Zod validation. Ownership, workflow state, idempotency, and relationships remain relational so they can be queried and enforced independently of flexible payloads.
 
@@ -51,6 +52,8 @@ Mutations return a consistent `ActionResult`: either `{ ok: true, data, auditEve
 
 AI tools are separated into read tools and proposal tools. Any consequential action—publishing, activation, budget increase, deletion, or bulk approval—must produce a confirmation proposal and then pass through the same authorized mutation path as a manual action.
 
+`MarketingAgent` owns objective interpretation and tool orchestration. The default `MockMarketingAgent` deterministically reads current Brand Kit guidance, sources, media, audiences, connection health, insights, and measurement; selects a specialized lifecycle, performance, or cross-channel workflow; and persists an inspectable proposal plus ordered tool trace. Executing a confirmed proposal uses the same template-instantiation path as manual creation, commits the campaign, content versions, template-use record, optional paused paid campaign, agent result, and idempotency ledger entry as one D1 batch, and records an audit event. It never submits, approves, publishes, or activates spend.
+
 ## Security and governance
 
 - Demo identity is stored in an HTTP-only, `SameSite=Lax` cookie.
@@ -66,7 +69,7 @@ AI tools are separated into read tools and proposal tools. Any consequential act
 
 `app/components/GrowthOSApp.tsx` contains the shared shell and functional product surfaces. Product naming, navigation, metadata, feature labels, the shared `ChannelKey` classifier, route aliases, and campaign-tab routing are centralized in `lib/product.ts`; colors, spacing, focus, responsive behavior, and light/dark tokens live in `app/globals.css`.
 
-The client derives Social, Email & Messaging, Paid Ads, and Web & Content workspaces from the existing campaign, content, template, paid-ad, schedule, and metric records. This keeps the channel-first presentation free of duplicate data. Primary pages reveal only the next useful layer; Brand & Assets, Audiences, Connections & Syncs, Team, Audit, and Settings stay available under Manage.
+The client derives Social, Email & Messaging, Paid Ads, and Web & Content workspaces from the existing campaign, content, template, paid-ad, schedule, and metric records. The Agent workspace is reached through the small global Ask GrowthOS control and shows the exact context, evidence, tool steps, creative, destinations, forecast, and consequences before its one guarded action. This keeps the channel-first presentation free of duplicate data. Primary pages reveal only the next useful layer; Brand & Assets, Audiences, Connections & Syncs, Team, Audit, and Settings stay available under Manage.
 
 The UI is keyboard navigable, uses semantic controls for interactive cards and tabs, labels custom inputs, closes dialogs and drawers with Escape, and replaces the sidebar with a five-destination bottom bar on narrow screens. Charts are descriptive rather than decision-making controls, so the same metrics remain available in text.
 

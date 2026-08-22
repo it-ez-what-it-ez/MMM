@@ -1,7 +1,13 @@
 import { z } from "zod";
 import { database, initializeDatabase, loadAppState } from "@/db/runtime";
 import { instantiateCampaignTemplate } from "@/lib/campaign-templates";
-import type { ActionResult, Role } from "@/lib/types";
+import type { CampaignTemplate } from "@/lib/campaign-templates";
+import type {
+  ActionResult,
+  MarketingAgentProposal,
+  Role,
+} from "@/lib/types";
+import { getMarketingAgent } from "@/server/marketing-agent";
 import { getAIProvider, MockIntegrationAdapter } from "@/server/providers";
 
 const actionSchema = z.discriminatedUnion("type", [
@@ -96,6 +102,16 @@ const actionSchema = z.discriminatedUnion("type", [
       )
       .min(1),
   }),
+  z.object({
+    type: z.literal("startAgentRun"),
+    objective: z.string().trim().min(12).max(500),
+    mode: z.enum(["LIFECYCLE", "PERFORMANCE", "CROSS_CHANNEL"]),
+  }),
+  z.object({
+    type: z.literal("executeAgentRun"),
+    runId: z.string().min(3),
+    confirmed: z.literal(true),
+  }),
 ]);
 
 type Action = z.infer<typeof actionSchema>;
@@ -121,6 +137,8 @@ const permissions: Record<Role, Set<string>> = {
     "createFollowup",
     "updateSettings",
     "createAudience",
+    "startAgentRun",
+    "executeAgentRun",
   ]),
   ADMIN: new Set([
     "connectIntegration",
@@ -140,6 +158,8 @@ const permissions: Record<Role, Set<string>> = {
     "createFollowup",
     "updateSettings",
     "createAudience",
+    "startAgentRun",
+    "executeAgentRun",
   ]),
   MARKETER: new Set([
     "saveBrandVoice",
@@ -154,6 +174,8 @@ const permissions: Record<Role, Set<string>> = {
     "createPaidAd",
     "createFollowup",
     "createAudience",
+    "startAgentRun",
+    "executeAgentRun",
   ]),
   REVIEWER: new Set(["decideApproval", "bulkApprove"]),
   VIEWER: new Set(),
@@ -178,6 +200,91 @@ async function audit(
 
 async function find(sql: string, value: string) {
   return database().prepare(sql).bind(value).first<Record<string, unknown>>();
+}
+
+function prepareTemplateCampaign(input: {
+  template: CampaignTemplate;
+  brandName: string;
+  name: string;
+  startDate: string;
+  variables: Record<string, string>;
+  ownerId: string;
+  reason: string;
+  campaignId?: string;
+}) {
+  const campaignId = input.campaignId ?? id("camp");
+  const createdAt = now();
+  const instance = instantiateCampaignTemplate(input.template, {
+    brandName: input.brandName,
+    startDate: input.startDate,
+    variables: input.variables,
+  });
+  const statements: D1PreparedStatement[] = [
+    database()
+      .prepare(
+        "INSERT INTO campaigns (id, workspace_id, title, summary, objective, audience, offer, start_date, end_date, state, channels_json, plan_json, owner_id, progress, created_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, 18, ?)",
+      )
+      .bind(
+        campaignId,
+        input.name,
+        instance.summary,
+        instance.objective,
+        instance.audience,
+        instance.offer,
+        instance.startDate,
+        instance.endDate,
+        JSON.stringify(instance.channels),
+        JSON.stringify(instance.plan),
+        input.ownerId,
+        createdAt,
+      ),
+  ];
+  for (const generated of instance.assets) {
+    const contentId = id("content");
+    statements.push(
+      database()
+        .prepare(
+          "INSERT INTO content_items (id, campaign_id, channel, type, title, body, state, scheduled_at, version, external_id, metrics_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, 1, NULL, ?, ?)",
+        )
+        .bind(
+          contentId,
+          campaignId,
+          generated.channel,
+          generated.type,
+          generated.title,
+          generated.body,
+          generated.scheduledAt,
+          JSON.stringify({ impressions: 0, clicks: 0, conversions: 0 }),
+          createdAt,
+        ),
+      database()
+        .prepare(
+          "INSERT INTO content_versions (id, content_id, version, body, reason, created_at) VALUES (?, ?, 1, ?, ?, ?)",
+        )
+        .bind(
+          id("version"),
+          contentId,
+          generated.body,
+          input.reason,
+          createdAt,
+        ),
+    );
+  }
+  statements.push(
+    database()
+      .prepare(
+        "INSERT INTO campaign_template_uses (id, workspace_id, template_id, campaign_id, variables_json, created_by, created_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?)",
+      )
+      .bind(
+        id("template-use"),
+        input.template.id,
+        campaignId,
+        JSON.stringify(input.variables),
+        input.ownerId,
+        createdAt,
+      ),
+  );
+  return { campaignId, createdAt, instance, statements };
 }
 
 export async function performAction(
@@ -285,88 +392,202 @@ export async function performAction(
       };
     }
 
-    const instance = instantiateCampaignTemplate(template, {
+    const prepared = prepareTemplateCampaign({
+      template,
       brandName: state.brand.name,
+      name: action.name,
       startDate: action.startDate,
       variables: action.variables,
+      ownerId: userId,
+      reason: `Template: ${template.name}`,
     });
-    const campaignId = id("camp");
-    const createdAt = now();
-    await database()
-      .prepare(
-        "INSERT INTO campaigns (id, workspace_id, title, summary, objective, audience, offer, start_date, end_date, state, channels_json, plan_json, owner_id, progress, created_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?, ?, ?, 'DRAFT', ?, ?, ?, 18, ?)",
-      )
-      .bind(
-        campaignId,
-        action.name,
-        instance.summary,
-        instance.objective,
-        instance.audience,
-        instance.offer,
-        instance.startDate,
-        instance.endDate,
-        JSON.stringify(instance.channels),
-        JSON.stringify(instance.plan),
-        userId,
-        createdAt,
-      )
-      .run();
-
-    for (const generated of instance.assets) {
-      const contentId = id("content");
-      await database()
-        .prepare(
-          "INSERT INTO content_items (id, campaign_id, channel, type, title, body, state, scheduled_at, version, external_id, metrics_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'DRAFT', ?, 1, NULL, ?, ?)",
-        )
-        .bind(
-          contentId,
-          campaignId,
-          generated.channel,
-          generated.type,
-          generated.title,
-          generated.body,
-          generated.scheduledAt,
-          JSON.stringify({ impressions: 0, clicks: 0, conversions: 0 }),
-          createdAt,
-        )
-        .run();
-      await database()
-        .prepare(
-          "INSERT INTO content_versions (id, content_id, version, body, reason, created_at) VALUES (?, ?, 1, ?, ?, ?)",
-        )
-        .bind(
-          id("version"),
-          contentId,
-          generated.body,
-          `Template: ${template.name}`,
-          createdAt,
-        )
-        .run();
-    }
-
-    await database()
-      .prepare(
-        "INSERT INTO campaign_template_uses (id, workspace_id, template_id, campaign_id, variables_json, created_by, created_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?)",
-      )
-      .bind(
-        id("template-use"),
-        template.id,
-        campaignId,
-        JSON.stringify(action.variables),
-        userId,
-        createdAt,
-      )
-      .run();
+    await database().batch(prepared.statements);
     const auditId = await audit(
       userId,
       "CAMPAIGN_CREATED_FROM_TEMPLATE",
       "Campaign",
-      campaignId,
-      `Created ${action.name} from ${template.name} with ${instance.assets.length} scheduled draft assets`,
+      prepared.campaignId,
+      `Created ${action.name} from ${template.name} with ${prepared.instance.assets.length} scheduled draft assets`,
     );
     return {
       ok: true,
-      data: { campaignId, assetCount: instance.assets.length },
+      data: {
+        campaignId: prepared.campaignId,
+        assetCount: prepared.instance.assets.length,
+      },
+      auditEventId: auditId,
+    };
+  }
+  if (action.type === "startAgentRun") {
+    const generated = await getMarketingAgent().propose({
+      objective: action.objective,
+      mode: action.mode,
+      state,
+    });
+    const runId = id("agent");
+    const createdAt = now();
+    const statements: D1PreparedStatement[] = [
+      database()
+        .prepare(
+          "INSERT INTO marketing_agent_runs (id, workspace_id, created_by, mode, objective, status, selected_template_id, proposal_json, result_json, created_at, updated_at) VALUES (?, 'ws-northstar', ?, ?, ?, 'READY_FOR_REVIEW', ?, ?, NULL, ?, ?)",
+        )
+        .bind(
+          runId,
+          userId,
+          action.mode,
+          action.objective,
+          generated.proposal.templateId,
+          JSON.stringify(generated.proposal),
+          createdAt,
+          createdAt,
+        ),
+    ];
+    for (const step of generated.steps) {
+      statements.push(
+        database()
+          .prepare(
+            "INSERT INTO marketing_agent_steps (id, run_id, position, tool, title, detail, state, output_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          )
+          .bind(
+            id("agent-step"),
+            runId,
+            step.position,
+            step.tool,
+            step.title,
+            step.detail,
+            step.state,
+            JSON.stringify(step.output),
+            createdAt,
+          ),
+      );
+    }
+    await database().batch(statements);
+    const auditId = await audit(
+      userId,
+      "AGENT_PROPOSAL_CREATED",
+      "MarketingAgentRun",
+      runId,
+      `Agent assembled ${generated.proposal.assetCount} drafts across ${generated.proposal.channels.length} channels and stopped for confirmation`,
+    );
+    return {
+      ok: true,
+      data: { runId },
+      auditEventId: auditId,
+    };
+  }
+  if (action.type === "executeAgentRun") {
+    const run = state.agentRuns.find((item) => item.id === action.runId);
+    if (!run) return { ok: false, error: "Agent run not found." };
+    const idempotencyKey = `agent-execute:${run.id}`;
+    const completed = await find(
+      "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
+      idempotencyKey,
+    );
+    if (completed) {
+      return {
+        ok: true,
+        data: {
+          campaignId: String(completed.external_id),
+          paidAdId: run.result?.paidAdId,
+          idempotent: true,
+        },
+      };
+    }
+    if (run.status !== "READY_FOR_REVIEW")
+      return { ok: false, error: "This agent run is no longer executable." };
+
+    const proposal = run.proposal as MarketingAgentProposal;
+    if (!proposal.requiresConfirmation)
+      return { ok: false, error: "The proposal confirmation is invalid." };
+    const template = state.templates.find(
+      (item) => item.id === proposal.templateId,
+    );
+    if (!template) return { ok: false, error: "Campaign template not found." };
+    const prepared = prepareTemplateCampaign({
+      template,
+      brandName: state.brand.name,
+      name: proposal.name,
+      startDate: proposal.startDate,
+      variables: proposal.variables,
+      ownerId: userId,
+      reason: `Marketing agent: ${run.id}`,
+    });
+    let paidAdId: string | undefined;
+    if (proposal.execution.createPaidAd) {
+      const creative =
+        prepared.instance.assets.find((asset) =>
+          asset.channel.toLowerCase().includes("ads"),
+        ) ?? prepared.instance.assets[0];
+      paidAdId = id("ad");
+      const paidKey = `agent-paid:${run.id}`;
+      const adapter = new MockIntegrationAdapter("int-meta", []);
+      const provider = await adapter.createAdCampaign!(proposal.name, paidKey);
+      prepared.statements.push(
+        database()
+          .prepare(
+            "INSERT INTO paid_ad_campaigns (id, workspace_id, name, platform, objective, state, budget, spend, results, date_range, creative_json, external_id) VALUES (?, 'ws-northstar', ?, 'Meta Ads', ?, 'PAUSED', ?, 0, 0, ?, ?, ?)",
+          )
+          .bind(
+            paidAdId,
+            proposal.name,
+            run.objective,
+            Math.round(proposal.budget),
+            `${prepared.instance.startDate} – ${prepared.instance.endDate}`,
+            JSON.stringify([
+              {
+                headline: creative.title,
+                body: creative.body,
+                cta: proposal.variables.primaryCta ?? "Learn more",
+              },
+            ]),
+            provider.externalId,
+          ),
+        database()
+          .prepare(
+            "INSERT INTO operation_ledger (idempotency_key, operation, external_id, status, created_at) VALUES (?, 'create_ad_campaign', ?, 'COMPLETED', ?)",
+          )
+          .bind(paidKey, provider.externalId, prepared.createdAt),
+      );
+    }
+    const result = { campaignId: prepared.campaignId, paidAdId };
+    prepared.statements.push(
+      database()
+        .prepare(
+          "UPDATE marketing_agent_runs SET status = 'EXECUTED', result_json = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(JSON.stringify(result), prepared.createdAt, run.id),
+      database()
+        .prepare(
+          "INSERT INTO marketing_agent_steps (id, run_id, position, tool, title, detail, state, output_json, created_at) VALUES (?, ?, 7, 'create_campaign_draft', 'Built the approved draft campaign', ?, 'COMPLETED', ?, ?)",
+        )
+        .bind(
+          id("agent-step"),
+          run.id,
+          paidAdId
+            ? "Created editable campaign drafts and a paused provider ad campaign."
+            : "Created editable campaign drafts without publishing or sending.",
+          JSON.stringify(result),
+          prepared.createdAt,
+        ),
+      database()
+        .prepare(
+          "INSERT INTO operation_ledger (idempotency_key, operation, external_id, status, created_at) VALUES (?, 'execute_agent_run', ?, 'COMPLETED', ?)",
+        )
+        .bind(idempotencyKey, prepared.campaignId, prepared.createdAt),
+    );
+    await database().batch(prepared.statements);
+    const auditId = await audit(
+      userId,
+      "AGENT_RUN_EXECUTED",
+      "MarketingAgentRun",
+      run.id,
+      paidAdId
+        ? `Created campaign ${prepared.campaignId} and paused ad ${paidAdId}; nothing was published`
+        : `Created campaign ${prepared.campaignId}; nothing was published`,
+    );
+    return {
+      ok: true,
+      data: { ...result, idempotent: false },
       auditEventId: auditId,
     };
   }

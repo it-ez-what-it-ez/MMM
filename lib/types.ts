@@ -202,6 +202,84 @@ export type LearningPreference = {
   explicit: boolean;
 };
 
+export type MarketingAgentMode =
+  | "LIFECYCLE"
+  | "PERFORMANCE"
+  | "CROSS_CHANNEL";
+export type AgentDestinationCheck = {
+  channel: string;
+  provider: string;
+  state: "READY" | "ATTENTION" | "UNAVAILABLE";
+  detail: string;
+};
+export type AgentEvidence = {
+  label: string;
+  value: string;
+  source: string;
+  tone: "POSITIVE" | "NEUTRAL" | "WARNING";
+};
+export type MarketingAgentProposal = {
+  name: string;
+  summary: string;
+  mode: MarketingAgentMode;
+  templateId: string;
+  templateName: string;
+  startDate: string;
+  variables: Record<string, string>;
+  audience: {
+    id: string;
+    name: string;
+    size: number;
+    excluded: number;
+    eligible: number;
+  };
+  channels: string[];
+  assetCount: number;
+  budget: number;
+  forecast: {
+    primary: string;
+    range: string;
+    confidence: number;
+    basis: string;
+  };
+  destinations: AgentDestinationCheck[];
+  evidence: AgentEvidence[];
+  guardrails: string[];
+  requiresConfirmation: true;
+  execution: {
+    createCampaign: true;
+    createPaidAd: boolean;
+    publish: false;
+    submitApproval: false;
+  };
+};
+export type MarketingAgentStep = {
+  id: string;
+  position: number;
+  tool: string;
+  title: string;
+  detail: string;
+  state: "COMPLETED" | "BLOCKED";
+  output: Record<string, unknown>;
+  createdAt: string;
+};
+export type MarketingAgentRun = {
+  id: string;
+  createdBy: string;
+  mode: MarketingAgentMode;
+  objective: string;
+  status: "READY_FOR_REVIEW" | "EXECUTED" | "FAILED";
+  selectedTemplateId: string;
+  proposal: MarketingAgentProposal;
+  result?: {
+    campaignId: string;
+    paidAdId?: string;
+  };
+  steps: MarketingAgentStep[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type AppState = {
   workspace: Workspace;
   currentUser: User;
@@ -223,6 +301,7 @@ export type AppState = {
   media: MediaAsset[];
   sources: SourceMaterial[];
   learning: LearningPreference[];
+  agentRuns: MarketingAgentRun[];
 };
 
 export type ActionResult<T = unknown> =

@@ -11,6 +11,7 @@
 - Use the Vinext App Router starter with React, strict TypeScript, Tailwind CSS, Zod, Recharts, and Lucide icons.
 - Persist structured product state in D1 and media/source files in R2.
 - Keep AI and integration providers behind server-only typed adapters; use deterministic mock implementations by default.
+- Persist marketing-agent runs and ordered tool traces, then route confirmed proposals through the existing idempotent campaign and provider actions.
 - Attribute every mutation to a seeded demo identity and enforce role permissions server-side.
 
 ## Delivery
@@ -20,5 +21,6 @@
 - Render platform-specific creative previews before template selection and approval, including product/media placeholders, carousel slides, short-video storyboards, email, and SMS.
 - Keep creation template-first in three steps, reduce campaign workspaces to four route-addressable tabs, and derive four channel workspaces without duplicating records.
 - Keep Calendar and Approvals separate, move advanced administration under Manage, and use a five-item mobile bottom bar.
+- Add a focused Agent workspace with Lifecycle, Performance, and Cross-channel specialties, evidence inspection, real creative previews, connection checks, forecasts, and human-confirmed execution into drafts.
 - Add unit and Playwright coverage for the core workflow.
 - Complete type, lint, test, build, and private deployment validation.

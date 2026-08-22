@@ -17,6 +17,11 @@ import {
   stableExternalId,
 } from "@/lib/domain";
 import type { IntegrationDefinition } from "@/lib/types";
+import type { AppState } from "@/lib/types";
+import {
+  MockMarketingAgent,
+  selectAgentTemplate,
+} from "@/server/marketing-agent";
 import {
   campaignTemplateSchema,
   instantiateCampaignTemplate,
@@ -162,6 +167,111 @@ describe("GrowthOS domain rules", () => {
   it("requires confirmation for consequential actions", () => {
     expect(requiresConfirmation("publish_content")).toBe(true);
     expect(requiresConfirmation("list_connections")).toBe(false);
+  });
+  it("routes agent objectives to the right marketing skill and template", () => {
+    expect(
+      selectAgentTemplate(
+        "Launch our Black Friday promotion",
+        "CROSS_CHANNEL",
+        seededCampaignTemplates,
+      ).id,
+    ).toBe("template-bfcm");
+    expect(
+      selectAgentTemplate(
+        "Refresh paid creative fatigue",
+        "PERFORMANCE",
+        seededCampaignTemplates,
+      ).id,
+    ).toBe("template-product-content-showcase");
+  });
+  it("builds a transparent, confirmation-gated agent proposal", async () => {
+    const state = {
+      brand: {
+        name: "Northstar Analytics",
+        valueProposition: "Turn customer signals into clear actions.",
+        voice: {
+          tone: "Friendly expert",
+          avoid: ["revolutionary", "guaranteed"],
+        },
+      },
+      templates: seededCampaignTemplates,
+      audiences: [
+        {
+          id: "aud-trials",
+          name: "Engaged trials",
+          size: 3842,
+          excluded: 219,
+          destinations: ["Klaviyo", "Meta Ads"],
+        },
+      ],
+      definitions: [
+        { id: "int-meta", name: "Meta Ads" },
+        { id: "int-klaviyo", name: "Klaviyo" },
+      ],
+      connections: [
+        {
+          definitionId: "int-meta",
+          state: "CONNECTED",
+          lastError: undefined,
+        },
+        {
+          definitionId: "int-klaviyo",
+          state: "DEGRADED",
+          lastError: "Rate limit",
+        },
+      ],
+      insights: [
+        {
+          id: "insight-fatigue",
+          title: "Refresh paid creative",
+          evidence: "CTR declined 19% in seven days.",
+          confidence: 88,
+          kind: "WARNING",
+        },
+      ],
+      metrics: Array.from({ length: 14 }, (_, index) => ({
+        id: `metric-${index}`,
+        date: `2026-08-${String(index + 1).padStart(2, "0")}`,
+        impressions: 1000,
+        engagement: 100,
+        clicks: 50,
+        leads: 10,
+        spend: 100,
+        revenue: 500,
+      })),
+      sources: [{ id: "source-1" }],
+      media: [],
+    } as unknown as AppState;
+    const result = await new MockMarketingAgent().propose({
+      objective: "Refresh paid creative that is losing performance",
+      mode: "PERFORMANCE",
+      state,
+      now: new Date("2026-08-22T12:00:00.000Z"),
+    });
+    expect(result.proposal).toMatchObject({
+      startDate: "2026-08-24",
+      requiresConfirmation: true,
+      execution: {
+        createCampaign: true,
+        createPaidAd: true,
+        publish: false,
+        submitApproval: false,
+      },
+    });
+    expect(result.steps.map((step) => step.tool)).toEqual([
+      "read_marketing_context",
+      "analyze_opportunities",
+      "select_audience",
+      "assemble_campaign",
+      "validate_destinations",
+      "forecast_outcome",
+    ]);
+    expect(
+      result.proposal.destinations.find(
+        (destination) => destination.provider === "Klaviyo",
+      )?.state,
+    ).toBe("ATTENTION");
+    expect(result.proposal.guardrails.join(" ")).toContain("human approval");
   });
   it("enables the remote AI provider only with complete server configuration", () => {
     expect(getAIProvider({ AI_PROVIDER: "remote" })).toBeInstanceOf(

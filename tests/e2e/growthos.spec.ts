@@ -81,6 +81,57 @@ test("creates a coordinated campaign from a natural-language objective", async (
   ).toBeVisible();
 });
 
+test("runs the marketing agent from objective to durable campaign drafts", async ({
+  page,
+}) => {
+  await page.request.post("/api/identity", { data: { userId: "user-owner" } });
+  await page.goto("/app");
+  await page.getByRole("button", { name: "Ask GrowthOS" }).click();
+  await expect(page).toHaveURL(/\/app\/agent$/);
+  await expect(
+    page.getByRole("heading", { name: "Agent workspace" }),
+  ).toBeVisible();
+  await page
+    .getByLabel("Marketing outcome")
+    .fill("Refresh paid creative that is losing performance across Meta Ads");
+  await page.getByRole("radio", { name: /Performance/ }).check();
+  await page
+    .getByRole("button", { name: "Build campaign proposal" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Review the agent's work" }),
+  ).toBeVisible();
+  await expect(page.getByText("What the agent did")).toBeVisible();
+  await expect(page.getByText("Evidence used")).toBeVisible();
+  await expect(page.getByText("Publish nothing")).toBeVisible();
+  const execute = page.getByRole("button", { name: "Build campaign drafts" });
+  await expect(execute).toBeDisabled();
+  await page.getByLabel("I reviewed this proposal").check();
+  await expect(execute).toBeEnabled();
+  await execute.click();
+  await expect(page).toHaveURL(/\/app\/campaigns\/[^/]+\/content$/);
+
+  const state = await (await page.request.get("/api/state")).json();
+  expect(state.agentRuns[0].status).toBe("EXECUTED");
+  expect(state.agentRuns[0].steps).toHaveLength(7);
+  expect(
+    state.paidAds.find(
+      (item: { id: string }) => item.id === state.agentRuns[0].result.paidAdId,
+    ).state,
+  ).toBe("PAUSED");
+  const retry = await page.request.post("/api/action", {
+    data: {
+      type: "executeAgentRun",
+      runId: state.agentRuns[0].id,
+      confirmed: true,
+    },
+  });
+  expect((await retry.json()).data).toMatchObject({
+    campaignId: state.agentRuns[0].result.campaignId,
+    idempotent: true,
+  });
+});
+
 test("campaign workspaces use four route-addressable tabs", async ({
   page,
 }) => {

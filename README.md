@@ -7,6 +7,9 @@ The application is original product work inspired by the operational clarity of 
 ## What is included
 
 - A focused Today home with one recommended next action, work to continue, approvals, upcoming schedules, and three performance metrics
+- A durable Agent workspace that turns one outcome into an evidence-backed audience, campaign, creative, destination, and forecast proposal
+- Specialized Lifecycle, Performance, and Cross-channel agent modes with recorded tool steps, reusable context, and explicit human confirmation
+- End-to-end agent execution into editable campaign drafts and paused provider ad campaigns; approval, publishing, and spend activation remain separate safeguards
 - Channel-first workspaces for Social, Email & Messaging, Paid Ads, and Web & Content; every workspace uses the same Work → Templates → Results structure
 - Integration catalog, connection wizard, connection health, capabilities, and detail views
 - Brand Kit, voice controls, media and source material management, and protected website import
@@ -60,7 +63,7 @@ npm run test:e2e
 npm run build
 ```
 
-Playwright covers Today, all four channel workspaces, custom AI creation, visual product-template inspection, the three-step BFCM flow, four-tab campaign routing, Manage access, responsive navigation, integrations, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests additionally cover channel classification, template filtering, product-format coverage, simplified navigation, legacy aliases, and campaign-tab routing.
+Playwright covers Today, the agent outcome-to-draft journey, all four channel workspaces, custom AI creation, visual product-template inspection, the three-step BFCM flow, four-tab campaign routing, Manage access, responsive navigation, integrations, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests additionally cover agent skill/template routing, confirmation guardrails, channel classification, template filtering, product-format coverage, simplified navigation, legacy aliases, and campaign-tab routing.
 
 The template acceptance journey creates an 11-asset BFCM campaign in three focused steps and verifies that every generated draft has a persisted relative schedule.
 
@@ -69,6 +72,7 @@ The template acceptance journey creates an 11-asset BFCM campaign in three focus
 - Cloudflare D1 stores workspace, workflow, metrics, operation-ledger, and audit records.
 - Cloudflare R2 stores approved image uploads and source assets.
 - `AIProvider` and `IntegrationAdapter` are server-only typed contracts in `server/providers.ts`.
+- `MarketingAgent` and its typed tools live in `server/marketing-agent.ts`; every run and tool step is persisted in D1 for refresh-safe review and auditability.
 - `MockAIProvider` is the default and produces deterministic, Zod-validated output.
 - `RemoteAIProvider` activates only when `AI_PROVIDER=remote` and its server-only URL, API key, and model are configured; invalid or unavailable responses recover safely to deterministic generation.
 - Mock adapters simulate Meta Ads, Google Ads, Instagram, LinkedIn, Klaviyo, WordPress, Google Analytics, and Slack without collecting credentials.

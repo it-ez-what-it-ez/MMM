@@ -369,3 +369,47 @@ export const operationLedger = sqliteTable("operation_ledger", {
   status: text("status").notNull(),
   createdAt: text("created_at").notNull(),
 });
+
+export const marketingAgentRuns = sqliteTable(
+  "marketing_agent_runs",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    mode: text("mode").notNull(),
+    objective: text("objective").notNull(),
+    status: text("status").notNull(),
+    selectedTemplateId: text("selected_template_id").notNull(),
+    proposalJson: text("proposal_json").notNull(),
+    resultJson: text("result_json"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_agent_runs_workspace_created").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
+  ],
+);
+
+export const marketingAgentSteps = sqliteTable(
+  "marketing_agent_steps",
+  {
+    id: text("id").primaryKey(),
+    runId: text("run_id").notNull(),
+    position: integer("position").notNull(),
+    tool: text("tool").notNull(),
+    title: text("title").notNull(),
+    detail: text("detail").notNull(),
+    state: text("state").notNull(),
+    outputJson: text("output_json").notNull(),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_agent_steps_run_position").on(
+      table.runId,
+      table.position,
+    ),
+  ],
+);
