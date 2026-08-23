@@ -84,6 +84,7 @@ import type {
   Approval,
   ContentItem,
   IntegrationDefinition,
+  ProviderConnection,
   Role,
 } from "@/lib/types";
 
@@ -870,6 +871,26 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
     const timeout = setTimeout(() => setToast(null), 3800);
     return () => clearTimeout(timeout);
   }, [toast]);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get("connect_error");
+    const connected = params.get("connected") === "1";
+    if (!error && !connected) return;
+    const timeout = window.setTimeout(
+      () =>
+        setToast(
+          error
+            ? { tone: "error", message: error }
+            : {
+                tone: "success",
+                message:
+                  "Account authorized. Choose the advertising account to finish.",
+              },
+        ),
+      0,
+    );
+    return () => window.clearTimeout(timeout);
+  }, []);
 
   const navigate = (target: string) => {
     const [pathname] = target.split("?");
@@ -925,7 +946,9 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
         />
       );
     if (routedPath === "/app/channels/paid/manage")
-      return <PaidAdsView state={state} runAction={runAction} />;
+      return (
+        <PaidAdsView state={state} navigate={navigate} runAction={runAction} />
+      );
     if (routedPath.startsWith("/app/channels/")) {
       const channel = routedPath.split("/")[3] as ChannelKey;
       if (channelKeys.includes(channel))
@@ -947,6 +970,7 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           state={state}
           connectionId={routedPath.split("/").pop()!}
           navigate={navigate}
+          runAction={runAction}
         />
       );
     if (routedPath === "/app/products")
@@ -1094,6 +1118,14 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           )}
         </nav>
         <div className="sidebar-footer">
+          <button
+            className="health-strip"
+            onClick={() => navigate("/app/integrations")}
+            aria-label="Open advertising account connections"
+          >
+            <Link2 />
+            {sidebarOpen && <span>Ad account connections</span>}
+          </button>
           <button
             className="health-strip"
             onClick={() => navigate("/app/products")}
@@ -3383,6 +3415,14 @@ function Integrations({
   const [step, setStep] = useState(1);
   const [account, setAccount] = useState("Northstar Marketing");
   const [connecting, setConnecting] = useState(false);
+  const [apiKeyOpen, setApiKeyOpen] = useState(false);
+  const [apiKey, setApiKey] = useState("");
+  const [accountConnection, setAccountConnection] =
+    useState<ProviderConnection | null>(null);
+  const [providerAccountId, setProviderAccountId] = useState("");
+  const [providerAssets, setProviderAssets] = useState<Record<string, string>>(
+    {},
+  );
   const categories = [
     "All",
     "Advertising",
@@ -3406,9 +3446,63 @@ function Integrations({
         .includes(search.toLowerCase()),
   );
   const openWizard = (definition?: IntegrationDefinition) => {
+    const realProvider = definition
+      ? [
+          ["int-meta", "meta"],
+          ["int-google-ads", "google"],
+          ["int-reddit-ads", "reddit"],
+          ["int-chatgpt-ads", null],
+        ].find(([definitionId]) => definitionId === definition.id)
+      : undefined;
+    if (definition && realProvider) {
+      openProvider(definition.id, realProvider[1]);
+      return;
+    }
     setSelected(definition ?? null);
     setStep(definition ? 2 : 1);
     setWizard(true);
+  };
+  const providerDefinitions = [
+    { definitionId: "int-meta", key: "meta", oauth: "meta" },
+    { definitionId: "int-google-ads", key: "google", oauth: "google" },
+    { definitionId: "int-reddit-ads", key: "reddit", oauth: "reddit" },
+    { definitionId: "int-chatgpt-ads", key: "chatgpt", oauth: null },
+  ] as const;
+  const openProvider = (definitionId: string, oauth: string | null) => {
+    const provider = state.providerConnections.find(
+      (item) => item.definitionId === definitionId,
+    );
+    if (provider?.providerAccountId) {
+      navigate(`/app/integrations/${provider.connectionId}`);
+      return;
+    }
+    if (provider) {
+      setAccountConnection(provider);
+      setProviderAccountId(provider.accountOptions[0]?.id ?? "");
+      setProviderAssets({});
+      return;
+    }
+    if (!oauth) {
+      setApiKeyOpen(true);
+      return;
+    }
+    window.location.assign(
+      `/api/oauth/${oauth}/start?return_to=/app/integrations`,
+    );
+  };
+  const finishProviderAccount = async () => {
+    if (!accountConnection || !providerAccountId) return;
+    const result = await runAction(
+      {
+        type: "selectProviderAccount",
+        definitionId: accountConnection.definitionId,
+        connectionId: accountConnection.connectionId,
+        accountId: providerAccountId,
+        selectedAssets: providerAssets,
+      },
+      "Advertising account connected",
+    );
+    if (result.ok) setAccountConnection(null);
   };
   const connect = async () => {
     if (!selected) return;
@@ -3439,6 +3533,67 @@ function Integrations({
           </button>
         }
       />
+      <section className="card">
+        <div className="card-head">
+          <div>
+            <h2>Advertising accounts</h2>
+            <p>Authorize once, choose an account, then create paused campaigns directly in GrowthOS.</p>
+          </div>
+          <Badge value="LIVE API" />
+        </div>
+        <div className="catalog-grid">
+          {providerDefinitions.map((provider) => {
+            const definition = state.definitions.find(
+              (item) => item.id === provider.definitionId,
+            );
+            const live = state.providerConnections.find(
+              (item) => item.definitionId === provider.definitionId,
+            );
+            const setup = state.providerOwnerSetup[provider.key];
+            const ready = Boolean(live?.providerAccountId);
+            return (
+              <article className="integration-card" key={provider.definitionId}>
+                <div className="integration-card-head">
+                  <IntegrationMark definition={definition} size="large" />
+                  <Badge
+                    value={
+                      ready
+                        ? "CONNECTED"
+                        : live
+                          ? "NEEDS ACCOUNT"
+                          : setup
+                            ? "READY TO CONNECT"
+                            : "PLATFORM SETUP"
+                    }
+                  />
+                </div>
+                <h3>{definition?.name}</h3>
+                <p>
+                  {ready
+                    ? live?.providerAccountName
+                    : provider.key === "chatgpt"
+                      ? "Connect an account-scoped Ads API key. OpenAI does not provide advertiser OAuth."
+                      : "Secure provider login with encrypted refresh-token storage."}
+                </p>
+                <button
+                  className="button secondary full"
+                  disabled={!setup && !live}
+                  onClick={() => openProvider(provider.definitionId, provider.oauth)}
+                >
+                  {ready
+                    ? "Manage connection"
+                    : live
+                      ? "Choose account"
+                      : setup
+                        ? "Connect account"
+                        : "Platform setup required"}
+                  <ArrowRight />
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      </section>
       <section className="activation-shortcut">
         <span className="readiness-icon"><RefreshCw /></span>
         <span>
@@ -3667,6 +3822,12 @@ function Integrations({
               <div className="wizard-list">
                 {filtered
                   .filter((item) => item.status !== "COMING_SOON")
+                  .filter(
+                    (item) =>
+                      !providerDefinitions.some(
+                        (provider) => provider.definitionId === item.id,
+                      ),
+                  )
                   .slice(0, 8)
                   .map((definition) => (
                     <button
@@ -3814,6 +3975,135 @@ function Integrations({
           )}
         </footer>
       </Modal>
+      <Modal
+        open={apiKeyOpen}
+        onClose={() => setApiKeyOpen(false)}
+        title="Connect ChatGPT Ads"
+        eyebrow="Secure API key"
+      >
+        <div className="modal-body">
+          <div className="auth-panel">
+            <h3>Use an account-scoped Ads API key</h3>
+            <p>
+              Create the key in OpenAI Ads Manager. GrowthOS verifies it server-side and stores only an encrypted value.
+            </p>
+            <label>
+              Ads API key
+              <input
+                type="password"
+                autoComplete="off"
+                placeholder="Paste the account key"
+                value={apiKey}
+                onChange={(event) => setApiKey(event.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+        <footer className="modal-footer">
+          <button className="button ghost" onClick={() => setApiKeyOpen(false)}>
+            Cancel
+          </button>
+          <button
+            className="button primary"
+            disabled={apiKey.trim().length < 20 || connecting}
+            onClick={async () => {
+              setConnecting(true);
+              const result = await runAction(
+                { type: "connectChatGPTAds", apiKey },
+                "ChatGPT Ads account connected",
+              );
+              setConnecting(false);
+              if (result.ok) {
+                setApiKey("");
+                setApiKeyOpen(false);
+              }
+            }}
+          >
+            {connecting && <Loader2 className="spin" />}
+            Verify and connect
+          </button>
+        </footer>
+      </Modal>
+      <Modal
+        open={Boolean(accountConnection)}
+        onClose={() => setAccountConnection(null)}
+        title="Choose advertising account"
+        eyebrow="Final setup"
+      >
+        {accountConnection && (
+          <>
+            <div className="modal-body">
+              <div className="form-grid">
+                <label className="span-2">
+                  Ad account
+                  <select
+                    value={providerAccountId}
+                    onChange={(event) => {
+                      setProviderAccountId(event.target.value);
+                      setProviderAssets({});
+                    }}
+                  >
+                    {accountConnection.accountOptions.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}{option.currency ? ` · ${option.currency}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {([
+                  ["PAGE", "pageId", "Facebook Page"],
+                  ["PROFILE", "profileId", "Reddit profile"],
+                  ["FUNDING_INSTRUMENT", "fundingInstrumentId", "Funding source"],
+                  ["PIXEL", "pixelId", "Conversion pixel"],
+                ] as const).map(([kind, key, label]) => {
+                  const options = accountConnection.assetOptions.filter(
+                    (asset) =>
+                      asset.kind === kind &&
+                      (!asset.accountId || asset.accountId === providerAccountId),
+                  );
+                  if (!options.length) return null;
+                  return (
+                    <label key={key}>
+                      {label}
+                      <select
+                        value={providerAssets[key] ?? ""}
+                        onChange={(event) =>
+                          setProviderAssets((current) => ({
+                            ...current,
+                            [key]: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">Choose {label.toLowerCase()}</option>
+                        {options.map((option) => (
+                          <option key={option.id} value={option.id}>
+                            {option.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="alert amber">
+                <ShieldCheck />
+                <span>
+                  <strong>Campaigns are created paused</strong>
+                  <small>Spend begins only after a separate explicit activation.</small>
+                </span>
+              </div>
+            </div>
+            <footer className="modal-footer">
+              <button className="button ghost" onClick={() => setAccountConnection(null)}>
+                Cancel
+              </button>
+              <button className="button primary" onClick={() => void finishProviderAccount()}>
+                <Check /> Finish connection
+              </button>
+            </footer>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -3822,16 +4112,33 @@ function ConnectionDetail({
   state,
   connectionId,
   navigate,
+  runAction,
 }: {
   state: AppState;
   connectionId: string;
   navigate: (path: string) => void;
+  runAction: <T>(
+    payload: ActionPayload,
+    success: string,
+  ) => Promise<ActionResult<T>>;
 }) {
   const [tab, setTab] = useState("Overview");
+  const [disconnectConfirm, setDisconnectConfirm] = useState(false);
   const connection = state.connections.find((item) => item.id === connectionId);
   const definition = state.definitions.find(
     (item) => item.id === connection?.definitionId,
   );
+  const liveProvider = state.providerConnections.find(
+    (item) => item.connectionId === connectionId,
+  );
+  const oauthProvider =
+    definition?.id === "int-google-ads"
+      ? "google"
+      : definition?.id === "int-meta"
+        ? "meta"
+        : definition?.id === "int-reddit-ads"
+          ? "reddit"
+          : null;
   if (!connection || !definition)
     return (
       <Empty
@@ -3858,10 +4165,31 @@ function ConnectionDetail({
         description={connection.accountName}
         actions={
           <>
-            <button className="button secondary">
+            <button
+              className="button secondary"
+              onClick={() => {
+                if (oauthProvider)
+                  window.location.assign(
+                    `/api/oauth/${oauthProvider}/start?return_to=/app/integrations/${connectionId}`,
+                  );
+                else navigate("/app/integrations");
+              }}
+            >
               <RefreshCw /> Reconnect
             </button>
-            <button className="button primary">
+            <button
+              className="button primary"
+              disabled={!liveProvider}
+              onClick={() =>
+                void runAction(
+                  {
+                    type: "testProviderConnection",
+                    definitionId: definition.id,
+                  },
+                  "Live provider connection is healthy",
+                )
+              }
+            >
               <HeartPulse /> Test connection
             </button>
           </>
@@ -3873,7 +4201,9 @@ function ConnectionDetail({
           <div>
             <Badge value={connection.state} />
             <h2>{connection.accountName}</h2>
-            <p>Connected to {state.workspace.name}</p>
+            <p>
+              {connection.state === "CONNECTED" ? "Connected" : "Configured"} in {state.workspace.name}
+            </p>
           </div>
         </div>
         <div className="health-score">
@@ -3911,8 +4241,8 @@ function ConnectionDetail({
           </span>
           <span>
             <Gauge />
-            <small>API latency</small>
-            <strong>184 ms</strong>
+            <small>Authorization</small>
+            <strong>{liveProvider ? "Encrypted" : "Not stored"}</strong>
           </span>
         </div>
       </section>
@@ -4088,11 +4418,60 @@ function ConnectionDetail({
             audit event.
           </p>
           <div>
-            <button className="button secondary">Disable connection</button>
-            <button className="button danger">Delete connection</button>
+            {liveProvider ? (
+              <button
+                className="button danger"
+                onClick={() => setDisconnectConfirm(true)}
+              >
+                Remove authorization
+              </button>
+            ) : (
+              <button className="button secondary" disabled>
+                No live authorization stored
+              </button>
+            )}
           </div>
         </section>
       )}
+      <Modal
+        open={disconnectConfirm}
+        onClose={() => setDisconnectConfirm(false)}
+        title={`Disconnect ${definition.name}`}
+        eyebrow="Credential removal"
+      >
+        <div className="modal-body">
+          <div className="alert amber">
+            <AlertTriangle />
+            <span>
+              <strong>Remove this workspace authorization?</strong>
+              <small>
+                GrowthOS will delete the encrypted provider tokens. Existing provider campaigns are not deleted.
+              </small>
+            </span>
+          </div>
+        </div>
+        <footer className="modal-footer">
+          <button className="button ghost" onClick={() => setDisconnectConfirm(false)}>
+            Keep connected
+          </button>
+          <button
+            className="button danger"
+            onClick={async () => {
+              const result = await runAction(
+                {
+                  type: "disconnectProvider",
+                  definitionId: definition.id,
+                  confirmed: true,
+                },
+                `${definition.name} disconnected`,
+              );
+              if (result.ok) navigate("/app/integrations");
+            }}
+          >
+            Disconnect
+          </button>
+        </footer>
+      </Modal>
     </div>
   );
 }
@@ -5526,6 +5905,9 @@ function CampaignWorkspace({
   const [redditTarget, setRedditTarget] = useState<ContentItem | null>(null);
   const [redditBudget, setRedditBudget] = useState("500");
   const [redditConfirmed, setRedditConfirmed] = useState(false);
+  const [networkTarget, setNetworkTarget] = useState<ContentItem | null>(null);
+  const [networkBudget, setNetworkBudget] = useState("1000");
+  const [networkConfirmed, setNetworkConfirmed] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState<ContentItem | null>(
     null,
   );
@@ -5956,7 +6338,35 @@ function CampaignWorkspace({
                         <CheckCircle2 /> Provider draft created
                       </span>
                     )}
-                    {!(["ChatGPT Ads", "Reddit Ads"] as string[]).includes(
+                    {(["Meta Ads", "Google Ads"] as string[]).includes(
+                      item.channel,
+                    ) &&
+                      ["APPROVED", "SCHEDULED"].includes(item.state) &&
+                      !item.externalId && (
+                        <button
+                          className="primary-link"
+                          onClick={() => {
+                            setNetworkTarget(item);
+                            setNetworkConfirmed(false);
+                          }}
+                        >
+                          <Rocket /> Create paused ad
+                        </button>
+                      )}
+                    {(["Meta Ads", "Google Ads"] as string[]).includes(
+                      item.channel,
+                    ) &&
+                      item.externalId && (
+                        <span className="provider-created-label">
+                          <CheckCircle2 /> Provider draft created
+                        </span>
+                      )}
+                    {!([
+                      "ChatGPT Ads",
+                      "Reddit Ads",
+                      "Meta Ads",
+                      "Google Ads",
+                    ] as string[]).includes(
                       item.channel,
                     ) &&
                       ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(
@@ -6311,6 +6721,100 @@ function CampaignWorkspace({
                 "Paused Reddit Ads campaign created",
               );
               if (result.ok) setRedditTarget(null);
+            }}
+          >
+            <Rocket /> Create paused campaign
+          </button>
+        </footer>
+      </Modal>
+
+      <Modal
+        open={Boolean(networkTarget)}
+        onClose={() => setNetworkTarget(null)}
+        title={`Create paused ${networkTarget?.channel ?? "paid"} campaign`}
+        eyebrow="Real provider action"
+      >
+        <div className="modal-body">
+          <div className="confirm-block">
+            <span className="success-orb violet">
+              <Target />
+            </span>
+            <h3>Send this approved ad to {networkTarget?.channel}?</h3>
+            <p>
+              GrowthOS will create the provider campaign hierarchy and attach its real campaign ID to this content item.
+            </p>
+          </div>
+          <label>
+            Lifetime budget ({state.workspace.currency})
+            <input
+              type="number"
+              min="1"
+              max="1000000"
+              value={networkBudget}
+              onChange={(event) => setNetworkBudget(event.target.value)}
+            />
+          </label>
+          <div className="alert amber">
+            <ShieldCheck />
+            <span>
+              <strong>Paused by default</strong>
+              <small>
+                Creating this campaign does not begin spend. Activation is a separate confirmed action.
+              </small>
+            </span>
+          </div>
+          {networkTarget?.channel === "Meta Ads" && !state.metaAdsConfigured && (
+            <div className="alert neutral">
+              <Link2 />
+              <span>
+                <strong>Meta Ads account required</strong>
+                <small>Connect a real Meta ad account and Facebook Page first.</small>
+              </span>
+            </div>
+          )}
+          {networkTarget?.channel === "Google Ads" &&
+            !state.googleAdsConfigured && (
+              <div className="alert neutral">
+                <Link2 />
+                <span>
+                  <strong>Google Ads account required</strong>
+                  <small>Connect a real eligible Google Ads customer account first.</small>
+                </span>
+              </div>
+            )}
+          <label className="campaign-review-confirmation">
+            <input
+              type="checkbox"
+              aria-label="I confirm the paid ad creative and budget"
+              checked={networkConfirmed}
+              onChange={(event) => setNetworkConfirmed(event.target.checked)}
+            />
+            <span>
+              <strong>I confirm the creative and budget</strong>
+              <small>The provider IDs and action will be audited.</small>
+            </span>
+          </label>
+        </div>
+        <footer className="modal-footer">
+          <button className="button ghost" onClick={() => setNetworkTarget(null)}>
+            Not now
+          </button>
+          <button
+            className="button primary"
+            disabled={!networkConfirmed || Number(networkBudget) <= 0}
+            onClick={async () => {
+              if (!networkTarget) return;
+              const result = await runAction(
+                {
+                  type: "createNetworkAdCampaign",
+                  campaignId: campaign.id,
+                  contentId: networkTarget.id,
+                  budget: Number(networkBudget),
+                  confirmed: true,
+                },
+                `Paused ${networkTarget.channel} campaign created`,
+              );
+              if (result.ok) setNetworkTarget(null);
             }}
           >
             <Rocket /> Create paused campaign
@@ -7685,9 +8189,11 @@ function SyncsView({
 
 function PaidAdsView({
   state,
+  navigate,
   runAction,
 }: {
   state: AppState;
+  navigate: (path: string) => void;
   runAction: <T>(
     payload: ActionPayload,
     success: string,
@@ -7722,11 +8228,15 @@ function PaidAdsView({
         budget,
         headline,
         body,
+        targetUrl: state.brand.website,
+        confirmed: true,
       },
       "Paid campaign created in paused state",
     );
     setWizard(false);
   };
+  const providerConnected = (value: "Meta Ads" | "Google Ads") =>
+    value === "Meta Ads" ? state.metaAdsConfigured : state.googleAdsConfigured;
   return (
     <div className="page">
       <PageHeader
@@ -7928,14 +8438,8 @@ function PaidAdsView({
                   <span className="integration-mark mark-large">{item[0]}</span>
                   <strong>{item}</strong>
                   <small>
-                    {state.connections.some(
-                      (connection) =>
-                        state.definitions.find(
-                          (definition) =>
-                            definition.id === connection.definitionId,
-                        )?.name === item,
-                    )
-                      ? "Connected · Northstar Growth"
+                    {providerConnected(item)
+                      ? "Connected · ready to create"
                       : "Connection required"}
                   </small>
                 </button>
@@ -8135,10 +8639,22 @@ function PaidAdsView({
           </button>
           <button
             className="button primary"
-            onClick={() => (step < 7 ? setStep(step + 1) : void create())}
+            onClick={() => {
+              if (step === 7 && !providerConnected(platform)) {
+                setWizard(false);
+                navigate("/app/integrations");
+                return;
+              }
+              if (step < 7) setStep(step + 1);
+              else void create();
+            }}
           >
             {step === 7 ? <Rocket /> : null}
-            {step === 7 ? "Create paused campaign" : "Continue"}
+            {step === 7
+              ? providerConnected(platform)
+                ? "Create paused campaign"
+                : `Connect ${platform}`
+              : "Continue"}
             <ArrowRight />
           </button>
         </footer>
@@ -8892,6 +9408,8 @@ function CommandPalette({
   if (!open) return null;
   const allItems: Array<readonly [string, string, string]> = [
     ["Agent workspace", "/app/agent", "agent"],
+    ["Ad account connections", "/app/integrations", "integration"],
+    ["Paid Ads", "/app/channels/paid", "ads"],
     ...primaryNavigation,
     ...channelNavigation,
     ...operationsNavigation,

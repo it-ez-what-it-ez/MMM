@@ -92,6 +92,48 @@ export const connections = sqliteTable(
   ],
 );
 
+export const providerCredentials = sqliteTable(
+  "provider_credentials",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    definitionId: text("definition_id").notNull(),
+    connectionId: text("connection_id").notNull(),
+    encryptedAccessToken: text("encrypted_access_token").notNull(),
+    encryptedRefreshToken: text("encrypted_refresh_token"),
+    tokenExpiresAt: text("token_expires_at"),
+    providerAccountId: text("provider_account_id"),
+    providerAccountName: text("provider_account_name"),
+    metadataJson: text("metadata_json").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_provider_credentials_workspace_definition").on(
+      table.workspaceId,
+      table.definitionId,
+    ),
+    uniqueIndex("idx_provider_credentials_connection").on(table.connectionId),
+  ],
+);
+
+export const oauthStates = sqliteTable(
+  "oauth_states",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    definitionId: text("definition_id").notNull(),
+    userId: text("user_id").notNull(),
+    returnTo: text("return_to").notNull(),
+    codeVerifier: text("code_verifier"),
+    expiresAt: text("expires_at").notNull(),
+    usedAt: text("used_at"),
+    createdAt: text("created_at").notNull(),
+  },
+  (table) => [index("idx_oauth_states_expires").on(table.expiresAt)],
+);
+
 export const campaigns = sqliteTable(
   "campaigns",
   {

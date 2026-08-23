@@ -12,6 +12,7 @@ type RedditAdsEnvironment = {
   REDDIT_AD_ACCOUNT_ID?: string;
   REDDIT_ADS_PROFILE_ID?: string;
   REDDIT_ADS_FUNDING_INSTRUMENT_ID?: string;
+  REDDIT_ADS_PIXEL_ID?: string;
   REDDIT_ADS_USER_AGENT?: string;
 };
 
@@ -22,10 +23,14 @@ type RedditConfig = {
   adAccountId: string;
   profileId: string;
   fundingInstrumentId: string;
+  pixelId: string;
   userAgent: string;
+  accessToken?: string;
 };
 
-function config(): RedditConfig {
+export type RedditAdsConnection = Partial<RedditConfig>;
+
+function config(override?: RedditAdsConnection): RedditConfig {
   const values = env as unknown as RedditAdsEnvironment;
   const result = {
     clientId: values.REDDIT_ADS_CLIENT_ID?.trim() ?? "",
@@ -35,9 +40,19 @@ function config(): RedditConfig {
     profileId: values.REDDIT_ADS_PROFILE_ID?.trim() ?? "",
     fundingInstrumentId:
       values.REDDIT_ADS_FUNDING_INSTRUMENT_ID?.trim() ?? "",
+    pixelId: values.REDDIT_ADS_PIXEL_ID?.trim() ?? "",
     userAgent: values.REDDIT_ADS_USER_AGENT?.trim() ?? "",
+    ...override,
   };
-  if (Object.values(result).some((value) => !value)) {
+  const required = [
+    result.adAccountId,
+    result.profileId,
+    result.fundingInstrumentId,
+    result.pixelId,
+    result.userAgent,
+    result.accessToken || result.refreshToken,
+  ];
+  if (required.some((value) => !value)) {
     throw new Error(
       "Reddit Ads is not connected. Add the Reddit OAuth, ad account, profile, funding instrument, and user-agent server settings.",
     );
@@ -55,6 +70,7 @@ export function isRedditAdsConfigured() {
 }
 
 async function accessToken(settings: RedditConfig) {
+  if (settings.accessToken) return settings.accessToken;
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: settings.refreshToken,
@@ -143,8 +159,8 @@ const jsonRequest = (value: unknown): RequestInit => ({
 const asRedditTime = (date: string, end = false) =>
   new Date(`${date}T${end ? "23:59:59" : "00:00:00"}.000Z`).toISOString();
 
-export async function verifyRedditAdsAccount() {
-  const settings = config();
+export async function verifyRedditAdsAccount(connection?: RedditAdsConnection) {
+  const settings = config(connection);
   const token = await accessToken(settings);
   return redditRequest(
     token,
@@ -170,8 +186,9 @@ export async function createPausedRedditAdCampaign(input: {
   creative: { headline: string; body: string; targetUrl: string };
   resume?: RedditAdProgress;
   onProgress?: (progress: RedditAdProgress) => Promise<void>;
+  connection?: RedditAdsConnection;
 }) {
-  const settings = config();
+  const settings = config(input.connection);
   const token = await accessToken(settings);
   const headline = input.creative.headline.trim().slice(0, 300);
   const body = input.creative.body.trim().slice(0, 40_000);
@@ -200,6 +217,7 @@ export async function createPausedRedditAdCampaign(input: {
         goal_value: Math.round(input.budget * 1_000_000),
         is_campaign_budget_optimization: true,
         funding_instrument_id: settings.fundingInstrumentId,
+        conversion_pixel_id: settings.pixelId,
       }),
     );
     progress.campaignId = idFrom(campaignPayload, "campaign");
@@ -221,6 +239,7 @@ export async function createPausedRedditAdCampaign(input: {
         end_time: endTime,
         bid_strategy: null,
         bid_value: null,
+        conversion_pixel_id: settings.pixelId,
       }),
     );
     progress.adGroupId = idFrom(adGroupPayload, "ad group");
@@ -326,4 +345,22 @@ export async function createPausedRedditAdCampaign(input: {
     previewUrl:
       typeof ad.preview_url === "string" ? ad.preview_url : undefined,
   };
+}
+
+export async function activateRedditAdCampaign(
+  campaignId: string,
+  connection?: RedditAdsConnection,
+) {
+  const settings = config(connection);
+  const token = await accessToken(settings);
+  return redditRequest(
+    token,
+    settings,
+    `/ad_accounts/${encodeURIComponent(settings.adAccountId)}/campaigns/${encodeURIComponent(campaignId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ data: { configured_status: "ACTIVE" } }),
+    },
+  );
 }

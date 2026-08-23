@@ -42,6 +42,35 @@ test("desktop and mobile navigation stay focused on the V1", async ({ page }) =>
   await expect(mobile.getByRole("button", { name: "Products" })).toBeVisible();
 });
 
+test("advertising connections expose real provider setup without mock accounts", async ({
+  page,
+}) => {
+  await page.goto("/app/integrations");
+  const section = page
+    .getByRole("heading", { name: "Advertising accounts" })
+    .locator("xpath=ancestor::section[1]");
+  for (const provider of ["Meta Ads", "Google Ads", "Reddit Ads", "ChatGPT Ads"])
+    await expect(section.getByRole("heading", { name: provider })).toBeVisible();
+  await expect(
+    section.getByRole("button", { name: /Platform setup required/ }),
+  ).toHaveCount(3);
+  await section.getByRole("button", { name: /Connect account/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Connect ChatGPT Ads" });
+  await expect(dialog.getByLabel("Ads API key")).toHaveAttribute("type", "password");
+
+  const stateResponse = await page.request.get("/api/state");
+  const serialized = JSON.stringify(await stateResponse.json());
+  expect(serialized).not.toContain("encryptedAccessToken");
+  expect(serialized).not.toContain("encryptedRefreshToken");
+
+  const googleStart = await page.request.get(
+    "/api/oauth/google/start?return_to=/app/integrations",
+    { maxRedirects: 0 },
+  );
+  expect(googleStart.status()).toBe(307);
+  expect(googleStart.headers().location).toContain("connect_error=");
+});
+
 test("adds a product with a real stored image and keeps it after refresh", async ({
   page,
 }) => {
@@ -130,6 +159,25 @@ test("keeps real ad providers gated by approval and server credentials", async (
   const state = await (await page.request.get("/api/state")).json();
   expect(state.chatGptAdsConfigured).toBe(false);
   expect(state.redditAdsConfigured).toBe(false);
+  expect(state.metaAdsConfigured).toBe(false);
+  expect(state.googleAdsConfigured).toBe(false);
+  for (const platform of ["Meta Ads", "Google Ads"] as const) {
+    const paidResult = await page.request.post("/api/action", {
+      data: {
+        type: "createPaidAd",
+        name: `Provider gate ${platform}`,
+        platform,
+        objective: "Traffic",
+        budget: 500,
+        headline: "A real provider gate",
+        body: "This request must stop before any provider write.",
+        targetUrl: "https://example.com/provider-gate",
+        confirmed: true,
+      },
+    });
+    expect(paidResult.status()).toBe(400);
+    expect((await paidResult.json()).error).toContain("not connected");
+  }
   const template = state.templates.find(
     (item: { id: string }) => item.id === "template-product-content-showcase",
   );

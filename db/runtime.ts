@@ -24,6 +24,11 @@ const schemaStatements = [
   `CREATE INDEX IF NOT EXISTS idx_integration_definition_category ON integration_definitions(category)`,
   `CREATE TABLE IF NOT EXISTS connections (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, definition_id TEXT NOT NULL, account_name TEXT NOT NULL, state TEXT NOT NULL, capabilities_json TEXT NOT NULL, last_activity TEXT NOT NULL, last_error TEXT, success_rate INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_connections_workspace_state ON connections(workspace_id, state)`,
+  `CREATE TABLE IF NOT EXISTS provider_credentials (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, definition_id TEXT NOT NULL, connection_id TEXT NOT NULL, encrypted_access_token TEXT NOT NULL, encrypted_refresh_token TEXT, token_expires_at TEXT, provider_account_id TEXT, provider_account_name TEXT, metadata_json TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_credentials_workspace_definition ON provider_credentials(workspace_id, definition_id)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_credentials_connection ON provider_credentials(connection_id)`,
+  `CREATE TABLE IF NOT EXISTS oauth_states (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, definition_id TEXT NOT NULL, user_id TEXT NOT NULL, return_to TEXT NOT NULL, code_verifier TEXT, expires_at TEXT NOT NULL, used_at TEXT, created_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_oauth_states_expires ON oauth_states(expires_at)`,
   `CREATE TABLE IF NOT EXISTS campaigns (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, title TEXT NOT NULL, summary TEXT NOT NULL, objective TEXT NOT NULL, audience TEXT NOT NULL, offer TEXT, start_date TEXT NOT NULL, end_date TEXT NOT NULL, state TEXT NOT NULL, channels_json TEXT NOT NULL, plan_json TEXT NOT NULL, owner_id TEXT NOT NULL, progress INTEGER NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_campaigns_workspace_state ON campaigns(workspace_id, state)`,
   `CREATE TABLE IF NOT EXISTS campaign_templates (id TEXT PRIMARY KEY, slug TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL, category TEXT NOT NULL, occasion TEXT NOT NULL, badge TEXT NOT NULL, featured INTEGER NOT NULL, duration_days INTEGER NOT NULL, channels_json TEXT NOT NULL, audience TEXT NOT NULL, objective TEXT NOT NULL, offer TEXT NOT NULL, variables_json TEXT NOT NULL, assets_json TEXT NOT NULL, plan_json TEXT NOT NULL, recommended_budget INTEGER NOT NULL, updated_at TEXT NOT NULL)`,
@@ -111,10 +116,22 @@ async function seedCampaignTemplates() {
 async function seedChatGPTAdsDefinition() {
   await db().batch([
     db().prepare(
-      "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-chatgpt-ads', 'ChatGPT Ads', 'chatgpt-ads', 'Create paused chat card campaigns and read their delivery status.', 'Advertising', 'DESTINATION', 'API_KEY', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'chatgpt-ads')",
+      "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-chatgpt-ads', 'ChatGPT Ads', 'chatgpt-ads', 'Connect an Ads Manager key to create paused chat card campaigns.', 'Advertising', 'DESTINATION', 'API_KEY', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'chatgpt-ads')",
     ),
     db().prepare(
-      "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-reddit-ads', 'Reddit Ads', 'reddit-ads', 'Create paused sponsored-post campaigns and read their delivery status.', 'Advertising', 'DESTINATION', 'OAUTH', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'reddit-ads')",
+      "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-reddit-ads', 'Reddit Ads', 'reddit-ads', 'Sign in with Reddit to create paused sponsored-post campaigns.', 'Advertising', 'DESTINATION', 'OAUTH', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'reddit-ads')",
+    ),
+    db().prepare(
+      "UPDATE integration_definitions SET description = 'Connect an Ads Manager key to create paused chat card campaigns.', auth_type = 'API_KEY', status = 'AVAILABLE' WHERE id = 'int-chatgpt-ads'",
+    ),
+    db().prepare(
+      "UPDATE integration_definitions SET description = 'Sign in with Reddit to create paused sponsored-post campaigns.', auth_type = 'OAUTH', status = 'AVAILABLE' WHERE id = 'int-reddit-ads'",
+    ),
+    db().prepare(
+      "UPDATE integration_definitions SET description = 'Sign in with Meta to select an ad account and create paused campaigns.', auth_type = 'OAUTH', status = 'AVAILABLE' WHERE id = 'int-meta'",
+    ),
+    db().prepare(
+      "UPDATE integration_definitions SET description = 'Sign in with Google to select an Ads account and create paused search campaigns.', auth_type = 'OAUTH', status = 'AVAILABLE' WHERE id = 'int-google-ads'",
     ),
   ]);
 }
@@ -155,6 +172,11 @@ export async function initializeDatabase() {
   await seedCampaignTemplates();
   await seedProducts();
   await seedChatGPTAdsDefinition();
+  await db()
+    .prepare(
+      "UPDATE connections SET state = 'SETUP_REQUIRED', account_name = 'Connect a real Meta account', last_error = 'OAuth authorization required', success_rate = 0 WHERE id = 'conn-meta' AND definition_id = 'int-meta' AND NOT EXISTS (SELECT 1 FROM provider_credentials WHERE definition_id = 'int-meta' AND workspace_id = 'ws-northstar')",
+    )
+    .run();
   const existing = await db()
     .prepare("SELECT id FROM workspaces LIMIT 1")
     .first();
@@ -1425,6 +1447,7 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
     agentRuns,
     agentSteps,
     products,
+    providerCredentialRows,
   ] = await Promise.all([
     rows("SELECT * FROM workspaces LIMIT 1"),
     rows(
@@ -1458,6 +1481,7 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
       "SELECT * FROM marketing_agent_steps ORDER BY run_id, position",
     ),
     rows("SELECT * FROM products ORDER BY updated_at DESC"),
+    rows("SELECT * FROM provider_credentials ORDER BY updated_at DESC"),
   ]);
   const users = userRows.map((r) => ({
     id: String(r.id),
@@ -1515,6 +1539,32 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
       lastError: r.last_error ? String(r.last_error) : undefined,
       successRate: Number(r.success_rate),
     })),
+    providerConnections: providerCredentialRows.map((r) => {
+      const metadata = parse<Record<string, unknown>>(r.metadata_json);
+      return {
+        connectionId: String(r.connection_id),
+        definitionId: String(r.definition_id),
+        providerAccountId: r.provider_account_id
+          ? String(r.provider_account_id)
+          : undefined,
+        providerAccountName: r.provider_account_name
+          ? String(r.provider_account_name)
+          : undefined,
+        tokenExpiresAt: r.token_expires_at
+          ? String(r.token_expires_at)
+          : undefined,
+        accountOptions: Array.isArray(metadata.accountOptions)
+          ? metadata.accountOptions
+          : [],
+        assetOptions: Array.isArray(metadata.assetOptions)
+          ? metadata.assetOptions
+          : [],
+        selectedAssets:
+          metadata.selectedAssets && typeof metadata.selectedAssets === "object"
+            ? (metadata.selectedAssets as Record<string, string>)
+            : {},
+      };
+    }),
     campaigns: campaigns.map((r) => ({
       id: String(r.id),
       title: String(r.title),
@@ -1716,20 +1766,46 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     })),
-    chatGptAdsConfigured: Boolean(
-      (env as unknown as { OPENAI_ADS_API_KEY?: string }).OPENAI_ADS_API_KEY?.trim(),
+    chatGptAdsConfigured:
+      providerCredentialRows.some(
+        (r) => r.definition_id === "int-chatgpt-ads" && r.provider_account_id,
+      ) ||
+      Boolean(
+        (env as unknown as { OPENAI_ADS_API_KEY?: string }).OPENAI_ADS_API_KEY?.trim(),
+      ),
+    redditAdsConfigured: providerCredentialRows.some(
+      (r) => r.definition_id === "int-reddit-ads" && r.provider_account_id,
     ),
-    redditAdsConfigured: (() => {
+    metaAdsConfigured: providerCredentialRows.some(
+      (r) => r.definition_id === "int-meta" && r.provider_account_id,
+    ),
+    googleAdsConfigured: providerCredentialRows.some(
+      (r) => r.definition_id === "int-google-ads" && r.provider_account_id,
+    ),
+    providerOwnerSetup: (() => {
       const values = env as unknown as Record<string, string | undefined>;
-      return [
-        "REDDIT_ADS_CLIENT_ID",
-        "REDDIT_ADS_CLIENT_SECRET",
-        "REDDIT_ADS_REFRESH_TOKEN",
-        "REDDIT_AD_ACCOUNT_ID",
-        "REDDIT_ADS_PROFILE_ID",
-        "REDDIT_ADS_FUNDING_INSTRUMENT_ID",
-        "REDDIT_ADS_USER_AGENT",
-      ].every((key) => Boolean(values[key]?.trim()));
+      const has = (...keys: string[]) =>
+        keys.every((key) => Boolean(values[key]?.trim()));
+      return {
+        chatgpt: has("PROVIDER_TOKEN_ENCRYPTION_KEY"),
+        reddit: has(
+          "PROVIDER_TOKEN_ENCRYPTION_KEY",
+          "REDDIT_ADS_CLIENT_ID",
+          "REDDIT_ADS_CLIENT_SECRET",
+          "REDDIT_ADS_USER_AGENT",
+        ),
+        meta: has(
+          "PROVIDER_TOKEN_ENCRYPTION_KEY",
+          "META_ADS_APP_ID",
+          "META_ADS_APP_SECRET",
+        ),
+        google: has(
+          "PROVIDER_TOKEN_ENCRYPTION_KEY",
+          "GOOGLE_ADS_CLIENT_ID",
+          "GOOGLE_ADS_CLIENT_SECRET",
+          "GOOGLE_ADS_DEVELOPER_TOKEN",
+        ),
+      };
     })(),
   };
 }

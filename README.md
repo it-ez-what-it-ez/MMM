@@ -22,6 +22,26 @@ The main product has six workspaces: Home, Campaigns, Products & Brand, Approval
 - Provider writes use an operation ledger so a completed action is not duplicated after refresh or retry.
 - The campaign CSV endpoint provides a practical handoff when a channel adapter is not enabled.
 
+## Real advertising account connections
+
+GrowthOS has production account-onboarding boundaries for Meta Ads, Google Ads, Reddit Ads, and ChatGPT Ads:
+
+- Meta, Google, and Reddit use provider-hosted OAuth. GrowthOS never receives the advertiser's password.
+- Access and refresh tokens are AES-GCM encrypted before they are written to D1. Tokens are never returned in `/api/state` or sent to the browser.
+- After OAuth, an Owner or Admin chooses the provider ad account. Meta also requires a Page; Reddit requires a profile, funding instrument, and conversion pixel.
+- Live connection tests run on the server. Disconnect removes the encrypted credential.
+- Meta, Google, Reddit, and ChatGPT provider campaigns are created paused. Activation is a second confirmed server action and updates the real provider before GrowthOS marks the campaign active.
+
+The platform owner must create and approve the OAuth applications first. Copy `.env.example`, add the client credentials and token-encryption key, and register these callback paths for both local and hosted origins:
+
+```text
+/api/oauth/google/callback
+/api/oauth/meta/callback
+/api/oauth/reddit/callback
+```
+
+Until those values are present, the product says **Platform setup required**; it does not present seeded or mocked ad accounts as connected.
+
 ## ChatGPT Ads
 
 Product campaigns include a real chat-card preview. After the creative is approved, GrowthOS can use OpenAI's Advertiser API to:
@@ -32,13 +52,19 @@ Product campaigns include a real chat-card preview. After the creative is approv
 - create every provider object in `paused` state;
 - retain the returned ad ID and review state in the campaign and audit log.
 
-Live creation is disabled until `OPENAI_ADS_API_KEY` is configured as a server secret. Obtain the account-scoped key in [OpenAI Ads Manager](https://ads.openai.com). The integration follows the official [API overview](https://developers.openai.com/ads/api-overview), [quickstart](https://developers.openai.com/ads/api-quickstart), and [ads reference](https://developers.openai.com/ads/api-reference/ads).
+OpenAI's current Ads API uses account-scoped API keys rather than advertiser OAuth. An Owner or Admin pastes a key from [OpenAI Ads Manager](https://ads.openai.com) into the secure connection dialog; GrowthOS verifies it server-side and stores it encrypted. The integration follows the official [API overview](https://developers.openai.com/ads/api-overview), [quickstart](https://developers.openai.com/ads/api-quickstart), and [authentication reference](https://developers.openai.com/ads/api-reference/authentication).
 
 ## Reddit Ads
 
 Product campaigns also include a native sponsored-post preview. After approval and explicit budget confirmation, GrowthOS can use Reddit Ads API v3 to create a Traffic campaign, ad group, structured text post, and ad. Every object is created paused, and the returned provider IDs, preview URL, and review state are persisted.
 
-Live creation requires a Reddit developer app, an Ads API refresh token with `adsread` and `adsedit`, an ad account, profile, funding instrument, and an honest application User-Agent. All values are server-only settings documented in `.env.example`. See Reddit's [API overview](https://ads-api.reddit.com/docs/v3/), [authentication guide](https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application), and [campaign setup guide](https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup).
+Live account login requires a Reddit developer app configured by the platform owner. The user authorizes `identity`, `adsread`, and `adsedit`, then selects an ad account, profile, funding instrument, and conversion pixel in GrowthOS. See Reddit's [API overview](https://ads-api.reddit.com/docs/v3/), [authentication guide](https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application), and [campaign setup guide](https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup).
+
+## Meta and Google Ads
+
+Meta uses Facebook Login and the Marketing API with `ads_management`, `ads_read`, `business_management`, and Page discovery permissions. The platform app needs review/advanced access before advertisers outside the app's test roles can connect. GrowthOS creates a paused campaign, ad set, creative, and ad, and stores the provider campaign ID for activation.
+
+Google uses multi-user OAuth with offline access and the `adwords` scope. The platform also needs a Google Ads developer token. GrowthOS discovers eligible non-manager accounts, then creates a paused Search campaign budget, campaign, ad group, and responsive search ad.
 
 ## Local development
 

@@ -44,8 +44,11 @@ export function isChatGPTAdsConfigured() {
 async function adsRequest<T>(
   path: string,
   init: RequestInit,
+  providedApiKey?: string,
 ): Promise<T> {
-  const apiKey = (env as unknown as AdsEnvironment).OPENAI_ADS_API_KEY?.trim();
+  const apiKey =
+    providedApiKey?.trim() ??
+    (env as unknown as AdsEnvironment).OPENAI_ADS_API_KEY?.trim();
   if (!apiKey) {
     throw new Error(
       "ChatGPT Ads is not connected. Add an Ads API key from OpenAI Ads Manager.",
@@ -92,8 +95,12 @@ function resourceId(payload: Record<string, unknown>, label: string) {
   return value;
 }
 
-export async function verifyChatGPTAdsAccount() {
-  return adsRequest<Record<string, unknown>>("/ad_account", { method: "GET" });
+export async function verifyChatGPTAdsAccount(apiKey?: string) {
+  return adsRequest<Record<string, unknown>>(
+    "/ad_account",
+    { method: "GET" },
+    apiKey,
+  );
 }
 
 export async function createPausedChatGPTAdCampaign(input: {
@@ -101,6 +108,7 @@ export async function createPausedChatGPTAdCampaign(input: {
   budget: number;
   creative: ChatGPTAdCreativeInput;
   image: { bytes: ArrayBuffer; name: string; contentType: string };
+  apiKey?: string;
 }) {
   const creative = buildChatGPTAdCreative(input.creative);
 
@@ -111,10 +119,11 @@ export async function createPausedChatGPTAdCampaign(input: {
       type: input.image.contentType,
     }),
   );
-  const uploaded = await adsRequest<Record<string, unknown>>("/upload", {
-    method: "POST",
-    body: upload,
-  });
+  const uploaded = await adsRequest<Record<string, unknown>>(
+    "/upload",
+    { method: "POST", body: upload },
+    input.apiKey,
+  );
   const fileId = resourceId(uploaded, "file");
 
   const campaignPayload = await adsRequest<Record<string, unknown>>(
@@ -125,9 +134,12 @@ export async function createPausedChatGPTAdCampaign(input: {
       body: JSON.stringify({
         name: input.campaignName,
         status: "paused",
-        lifetime_spend_limit_micros: Math.round(input.budget * 1_000_000),
+        budget: {
+          lifetime_spend_limit_micros: Math.round(input.budget * 1_000_000),
+        },
       }),
     },
+    input.apiKey,
   );
   const campaignId = resourceId(campaignPayload, "campaign");
 
@@ -149,19 +161,24 @@ export async function createPausedChatGPTAdCampaign(input: {
         },
       }),
     },
+    input.apiKey,
   );
   const adGroupId = resourceId(adGroupPayload, "ad group");
 
-  const adPayload = await adsRequest<Record<string, unknown>>("/ads", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      ad_group_id: adGroupId,
-      name: creative.title,
-      status: "paused",
-      creative: { ...creative, file_id: fileId },
-    }),
-  });
+  const adPayload = await adsRequest<Record<string, unknown>>(
+    "/ads",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ad_group_id: adGroupId,
+        name: creative.title,
+        status: "paused",
+        creative: { ...creative, file_id: fileId },
+      }),
+    },
+    input.apiKey,
+  );
   const adId = resourceId(adPayload, "ad");
   const nested = adPayload.data as Record<string, unknown> | undefined;
 
@@ -178,4 +195,17 @@ export async function createPausedChatGPTAdCampaign(input: {
           ? nested.review_status
           : "in_review",
   };
+}
+
+export async function activateChatGPTAdCampaign(
+  campaignId: string,
+  apiKey?: string,
+) {
+  return adsRequest<Record<string, unknown>>(
+    `/campaigns/${encodeURIComponent(campaignId)}/activate`,
+    {
+      method: "POST",
+    },
+    apiKey,
+  );
 }

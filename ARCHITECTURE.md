@@ -50,22 +50,30 @@ After confirmation, one server action writes the campaign, draft content items, 
 
 ## ChatGPT Ads adapter
 
-`server/chatgpt-ads.ts` is a server-only boundary for `https://api.ads.openai.com/v1`. It never exposes `OPENAI_ADS_API_KEY` to the browser.
+`server/chatgpt-ads.ts` is a server-only boundary for `https://api.ads.openai.com/v1`. It never exposes the workspace API key to the browser.
 
 The guarded action requires:
 
 1. an approved ChatGPT Ads content item;
 2. a persisted product URL and uploaded R2 image;
 3. an explicit budget confirmation;
-4. an account-scoped Ads API key.
+4. an account-scoped Ads API key stored by the provider credential boundary.
 
-It constrains chat-card titles and body copy to provider limits, uploads the image, and creates a paused campaign, paused ad group, and paused ad. Returned IDs and review status are audited. A completed operation key makes later retries return the existing provider result. No automatic activation or spend action exists in the V1 UI.
+It constrains chat-card titles and body copy to provider limits, uploads the image, and creates a paused campaign, paused ad group, and paused ad. Returned IDs and review status are audited. A completed operation key makes later retries return the existing provider result. Activation remains a separate explicit action.
 
 ## Reddit Ads adapter
 
 `server/reddit-ads.ts` is a server-only OAuth boundary for Reddit Ads API v3. It refreshes a short-lived bearer token with the configured developer application, sends the required application User-Agent, and never exposes the client secret or refresh token to the browser.
 
-The guarded action requires an approved Reddit Ads content item, a valid product destination, explicit lifetime-budget confirmation, and complete account, profile, and funding configuration. It creates a paused Traffic campaign, paused ad group, structured text sponsored post, and paused ad. Each provider ID is checkpointed as it is returned, so a recoverable retry resumes the unfinished step instead of recreating the earlier hierarchy. The final identifiers, preview, and review state are recorded in the operation ledger and audit log. V1 uses structured text posts because private product images are not fetchable by Reddit; media upload support can follow when a public asset-delivery boundary is added.
+The guarded action requires an approved Reddit Ads content item, a valid product destination, explicit lifetime-budget confirmation, and complete account, profile, funding, and conversion-pixel selection. It creates a paused Traffic campaign, paused ad group, structured text sponsored post, and paused ad. Each provider ID is checkpointed as it is returned, so a recoverable retry resumes the unfinished step instead of recreating the earlier hierarchy. The final identifiers, preview, and review state are recorded in the operation ledger and audit log. V1 uses structured text posts because private product images are not fetchable by Reddit; media upload support can follow when a public asset-delivery boundary is added.
+
+## OAuth and provider credentials
+
+`server/provider-oauth.ts` owns Meta, Google, and Reddit authorization. A one-time state row is scoped to the workspace, definition, and current demo user, expires after ten minutes, and is consumed before token exchange. Provider callbacks discover real account options but do not enable publishing until an Owner or Admin explicitly selects one.
+
+`server/provider-credentials.ts` encrypts access and refresh tokens using AES-256-GCM with a unique nonce per value. `provider_credentials` stores ciphertext, account metadata, and selected provider assets; `/api/state` exposes only sanitized account labels and options. `server/provider-access.ts` refreshes expiring Google and Reddit tokens server-side.
+
+`server/meta-ads.ts` and `server/google-ads.ts` create real provider campaign hierarchies in paused state. Consequential activation calls the provider first and updates D1 only after the provider succeeds.
 
 ## Security and correctness
 

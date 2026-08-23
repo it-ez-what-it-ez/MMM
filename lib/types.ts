@@ -57,6 +57,29 @@ export type Connection = {
   lastError?: string;
   successRate: number;
 };
+export type ProviderAccountOption = {
+  id: string;
+  name: string;
+  currency?: string;
+  timezone?: string;
+  manager?: boolean;
+};
+export type ProviderAssetOption = {
+  id: string;
+  name: string;
+  kind: "PAGE" | "PROFILE" | "FUNDING_INSTRUMENT" | "PIXEL";
+  accountId?: string;
+};
+export type ProviderConnection = {
+  connectionId: string;
+  definitionId: string;
+  providerAccountId?: string;
+  providerAccountName?: string;
+  tokenExpiresAt?: string;
+  accountOptions: ProviderAccountOption[];
+  assetOptions: ProviderAssetOption[];
+  selectedAssets: Record<string, string>;
+};
 export type Campaign = {
   id: string;
   title: string;
@@ -300,6 +323,7 @@ export type AppState = {
   brand: BrandProfile;
   definitions: IntegrationDefinition[];
   connections: Connection[];
+  providerConnections: ProviderConnection[];
   campaigns: Campaign[];
   templates: CampaignTemplate[];
   content: ContentItem[];
@@ -318,6 +342,9 @@ export type AppState = {
   products: ProductRecord[];
   chatGptAdsConfigured: boolean;
   redditAdsConfigured: boolean;
+  metaAdsConfigured: boolean;
+  googleAdsConfigured: boolean;
+  providerOwnerSetup: Record<"chatgpt" | "reddit" | "meta" | "google", boolean>;
 };
 
 export type ActionResult<T = unknown> =

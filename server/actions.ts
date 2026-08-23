@@ -10,11 +10,34 @@ import type {
 } from "@/lib/types";
 import { getMarketingAgent } from "@/server/marketing-agent";
 import { getAIProvider, MockIntegrationAdapter } from "@/server/providers";
-import { createPausedChatGPTAdCampaign } from "@/server/chatgpt-ads";
 import {
+  activateChatGPTAdCampaign,
+  createPausedChatGPTAdCampaign,
+  verifyChatGPTAdsAccount,
+} from "@/server/chatgpt-ads";
+import {
+  activateRedditAdCampaign,
   createPausedRedditAdCampaign,
   type RedditAdProgress,
 } from "@/server/reddit-ads";
+import { verifyRedditAdsAccount } from "@/server/reddit-ads";
+import {
+  getProviderCredential,
+  removeProviderCredential,
+  saveProviderCredential,
+  selectProviderAccount,
+} from "@/server/provider-credentials";
+import { getFreshProviderCredential } from "@/server/provider-access";
+import {
+  activateGoogleAdsCampaign,
+  createPausedGoogleAdsCampaign,
+  verifyGoogleAdsAccount,
+} from "@/server/google-ads";
+import {
+  activateMetaAdsCampaign,
+  createPausedMetaAdsCampaign,
+  verifyMetaAdsAccount,
+} from "@/server/meta-ads";
 
 type MediaBucket = {
   get(key: string): Promise<{
@@ -28,6 +51,41 @@ const actionSchema = z.discriminatedUnion("type", [
     type: z.literal("connectIntegration"),
     definitionId: z.string(),
     accountName: z.string().min(2),
+  }),
+  z.object({
+    type: z.literal("connectChatGPTAds"),
+    apiKey: z.string().trim().min(20),
+  }),
+  z.object({
+    type: z.literal("selectProviderAccount"),
+    definitionId: z.enum([
+      "int-google-ads",
+      "int-meta",
+      "int-reddit-ads",
+      "int-chatgpt-ads",
+    ]),
+    connectionId: z.string().min(3),
+    accountId: z.string().min(1),
+    selectedAssets: z.record(z.string(), z.string()).optional(),
+  }),
+  z.object({
+    type: z.literal("testProviderConnection"),
+    definitionId: z.enum([
+      "int-google-ads",
+      "int-meta",
+      "int-reddit-ads",
+      "int-chatgpt-ads",
+    ]),
+  }),
+  z.object({
+    type: z.literal("disconnectProvider"),
+    definitionId: z.enum([
+      "int-google-ads",
+      "int-meta",
+      "int-reddit-ads",
+      "int-chatgpt-ads",
+    ]),
+    confirmed: z.literal(true),
   }),
   z.object({
     type: z.literal("saveBrandVoice"),
@@ -96,6 +154,13 @@ const actionSchema = z.discriminatedUnion("type", [
     confirmed: z.literal(true),
   }),
   z.object({
+    type: z.literal("createNetworkAdCampaign"),
+    campaignId: z.string().min(3),
+    contentId: z.string().min(3),
+    budget: z.number().positive().max(1_000_000),
+    confirmed: z.literal(true),
+  }),
+  z.object({
     type: z.literal("createPaidAd"),
     name: z.string().min(3),
     platform: z.enum(["Meta Ads", "Google Ads"]),
@@ -103,6 +168,8 @@ const actionSchema = z.discriminatedUnion("type", [
     budget: z.number().positive(),
     headline: z.string().min(3),
     body: z.string().min(8),
+    targetUrl: z.string().url().optional(),
+    confirmed: z.literal(true),
   }),
   z.object({
     type: z.literal("activatePaidAd"),
@@ -174,6 +241,10 @@ const id = (prefix: string) => `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
 const permissions: Record<Role, Set<string>> = {
   OWNER: new Set([
     "connectIntegration",
+    "connectChatGPTAds",
+    "selectProviderAccount",
+    "testProviderConnection",
+    "disconnectProvider",
     "saveBrandVoice",
     "createCampaign",
     "useCampaignTemplate",
@@ -188,6 +259,7 @@ const permissions: Record<Role, Set<string>> = {
     "createPaidAd",
     "createChatGPTAdCampaign",
     "createRedditAdCampaign",
+    "createNetworkAdCampaign",
     "activatePaidAd",
     "createFollowup",
     "updateSettings",
@@ -200,6 +272,10 @@ const permissions: Record<Role, Set<string>> = {
   ]),
   ADMIN: new Set([
     "connectIntegration",
+    "connectChatGPTAds",
+    "selectProviderAccount",
+    "testProviderConnection",
+    "disconnectProvider",
     "saveBrandVoice",
     "createCampaign",
     "useCampaignTemplate",
@@ -214,6 +290,7 @@ const permissions: Record<Role, Set<string>> = {
     "createPaidAd",
     "createChatGPTAdCampaign",
     "createRedditAdCampaign",
+    "createNetworkAdCampaign",
     "activatePaidAd",
     "createFollowup",
     "updateSettings",
@@ -237,6 +314,7 @@ const permissions: Record<Role, Set<string>> = {
     "createPaidAd",
     "createChatGPTAdCampaign",
     "createRedditAdCampaign",
+    "createNetworkAdCampaign",
     "createFollowup",
     "createAudience",
     "startAgentRun",
@@ -381,12 +459,190 @@ export async function performAction(
       error: `${state.currentUser.role.toLowerCase()} access cannot perform this action.`,
     };
 
+  if (action.type === "connectChatGPTAds") {
+    try {
+      const accountPayload = await verifyChatGPTAdsAccount(action.apiKey);
+      const nested = accountPayload.data as Record<string, unknown> | undefined;
+      const providerAccountId = String(
+        accountPayload.id ?? nested?.id ?? "openai-ads-account",
+      );
+      const providerAccountName = String(
+        accountPayload.name ?? nested?.name ?? "OpenAI Ads account",
+      );
+      const definition = state.definitions.find(
+        (item) => item.id === "int-chatgpt-ads",
+      );
+      if (!definition)
+        return { ok: false, error: "ChatGPT Ads is not available." };
+      const existing = state.connections.find(
+        (item) => item.definitionId === definition.id,
+      );
+      const connectionId = existing?.id ?? id("conn");
+      if (existing) {
+        await database()
+          .prepare(
+            "UPDATE connections SET account_name = 'Choose an account', state = 'NEEDS_ACCOUNT', last_activity = ?, last_error = NULL, success_rate = 0 WHERE id = ?",
+          )
+          .bind(now(), connectionId)
+          .run();
+      } else {
+        await database()
+          .prepare(
+            "INSERT INTO connections (id, workspace_id, definition_id, account_name, state, capabilities_json, last_activity, last_error, success_rate) VALUES (?, 'ws-northstar', ?, 'Choose an account', 'NEEDS_ACCOUNT', ?, ?, NULL, 0)",
+          )
+          .bind(
+            connectionId,
+            definition.id,
+            JSON.stringify(definition.capabilities),
+            now(),
+          )
+          .run();
+      }
+      await saveProviderCredential({
+        definitionId: definition.id,
+        connectionId,
+        accessToken: action.apiKey,
+        accountOptions: [{ id: providerAccountId, name: providerAccountName }],
+        createdBy: userId,
+      });
+      await selectProviderAccount({
+        definitionId: definition.id,
+        connectionId,
+        accountId: providerAccountId,
+      });
+      const auditId = await audit(
+        userId,
+        "PROVIDER_CONNECTED",
+        "Connection",
+        connectionId,
+        `Connected ${providerAccountName} with an encrypted account-scoped API key`,
+      );
+      return {
+        ok: true,
+        data: { connectionId, providerAccountName },
+        auditEventId: auditId,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "ChatGPT Ads account validation failed.",
+      };
+    }
+  }
+
+  if (action.type === "selectProviderAccount") {
+    try {
+      const account = await selectProviderAccount(action);
+      const auditId = await audit(
+        userId,
+        "PROVIDER_ACCOUNT_SELECTED",
+        "Connection",
+        action.connectionId,
+        `Selected provider account ${account.name}`,
+      );
+      return { ok: true, data: { account }, auditEventId: auditId };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Account selection failed.",
+      };
+    }
+  }
+
+  if (action.type === "testProviderConnection") {
+    try {
+      if (action.definitionId === "int-chatgpt-ads") {
+        const credential = await getProviderCredential(action.definitionId);
+        if (!credential) throw new Error("Connect ChatGPT Ads first.");
+        await verifyChatGPTAdsAccount(credential.accessToken);
+      } else {
+        const credential = await getFreshProviderCredential(action.definitionId);
+        if (action.definitionId === "int-google-ads") {
+          await verifyGoogleAdsAccount({
+            accessToken: credential.accessToken,
+            customerId: credential.providerAccountId!,
+            loginCustomerId: credential.metadata.loginCustomerId,
+          });
+        } else if (action.definitionId === "int-meta") {
+          await verifyMetaAdsAccount({
+            accessToken: credential.accessToken,
+            adAccountId: credential.providerAccountId!,
+            pageId: credential.metadata.selectedAssets.pageId,
+          });
+        } else {
+          await verifyRedditAdsAccount({
+            accessToken: credential.accessToken,
+            adAccountId: credential.providerAccountId!,
+            profileId: credential.metadata.selectedAssets.profileId,
+            fundingInstrumentId:
+              credential.metadata.selectedAssets.fundingInstrumentId,
+            pixelId: credential.metadata.selectedAssets.pixelId,
+            userAgent:
+              (env as unknown as Record<string, string>).REDDIT_ADS_USER_AGENT ??
+              "GrowthOS/1.0",
+          });
+        }
+      }
+      const connection = state.connections.find(
+        (item) => item.definitionId === action.definitionId,
+      );
+      if (connection)
+        await database()
+          .prepare(
+            "UPDATE connections SET state = 'CONNECTED', last_activity = ?, last_error = NULL, success_rate = 100 WHERE id = ?",
+          )
+          .bind(now(), connection.id)
+          .run();
+      const auditId = await audit(
+        userId,
+        "PROVIDER_CONNECTION_TESTED",
+        "Connection",
+        connection?.id ?? action.definitionId,
+        "Live provider connection test passed",
+      );
+      return { ok: true, data: { healthy: true }, auditEventId: auditId };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error ? error.message : "Provider connection test failed.",
+      };
+    }
+  }
+
+  if (action.type === "disconnectProvider") {
+    const connection = state.connections.find(
+      (item) => item.definitionId === action.definitionId,
+    );
+    await removeProviderCredential(action.definitionId);
+    const auditId = await audit(
+      userId,
+      "PROVIDER_DISCONNECTED",
+      "Connection",
+      connection?.id ?? action.definitionId,
+      "Removed encrypted provider authorization",
+    );
+    return { ok: true, data: { disconnected: true }, auditEventId: auditId };
+  }
+
   if (action.type === "connectIntegration") {
     const definition = state.definitions.find(
       (item) => item.id === action.definitionId,
     );
     if (!definition || definition.status === "COMING_SOON")
       return { ok: false, error: "This integration is not available yet." };
+    if (
+      ["int-chatgpt-ads", "int-reddit-ads", "int-meta", "int-google-ads"].includes(
+        definition.id,
+      )
+    )
+      return {
+        ok: false,
+        error: "Use the provider's secure account connection flow.",
+      };
     const existing = state.connections.find(
       (item) => item.definitionId === action.definitionId,
     );
@@ -997,6 +1253,12 @@ export async function performAction(
         error:
           "Reddit Ads uses a separate paused-campaign flow so budget and review status can be confirmed.",
       };
+    if (item.channel === "Meta Ads" || item.channel === "Google Ads")
+      return {
+        ok: false,
+        error:
+          "Paid ads use the paused-campaign flow so budget and activation can be confirmed.",
+      };
     const key = `publish:${action.contentId}:v${item.version}`;
     const completed = await find(
       "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
@@ -1095,6 +1357,7 @@ export async function performAction(
       };
 
     try {
+      const credential = await getProviderCredential("int-chatgpt-ads");
       const result = await createPausedChatGPTAdCampaign({
         campaignName: campaign.title,
         budget: action.budget,
@@ -1108,6 +1371,7 @@ export async function performAction(
           name: String(media.name ?? "product.jpg"),
           contentType: stored.httpMetadata?.contentType ?? "image/jpeg",
         },
+        apiKey: credential?.accessToken,
       });
       await database().batch([
         database()
@@ -1133,7 +1397,7 @@ export async function performAction(
             JSON.stringify([
               { headline: item.title, body: item.body, cta: "Learn more" },
             ]),
-            result.adId,
+            result.campaignId,
           ),
       ]);
       const existingConnection = state.connections.find(
@@ -1223,6 +1487,7 @@ export async function performAction(
       resume = {};
     }
     try {
+      const credential = await getFreshProviderCredential("int-reddit-ads");
       const result = await createPausedRedditAdCampaign({
         campaignName: campaign.title,
         budget: action.budget,
@@ -1241,6 +1506,17 @@ export async function performAction(
             )
             .bind(JSON.stringify(progress), key)
             .run();
+        },
+        connection: {
+          accessToken: credential.accessToken,
+          adAccountId: credential.providerAccountId!,
+          profileId: credential.metadata.selectedAssets.profileId,
+          fundingInstrumentId:
+            credential.metadata.selectedAssets.fundingInstrumentId,
+          pixelId: credential.metadata.selectedAssets.pixelId,
+          userAgent:
+            (env as unknown as Record<string, string>).REDDIT_ADS_USER_AGENT ??
+            "GrowthOS/1.0",
         },
       });
       await database().batch([
@@ -1267,7 +1543,7 @@ export async function performAction(
             JSON.stringify([
               { headline: item.title, body: item.body, cta: "Learn more" },
             ]),
-            result.adId,
+            result.campaignId,
           ),
       ]);
       const existingConnection = state.connections.find(
@@ -1303,6 +1579,65 @@ export async function performAction(
       };
     }
   }
+  if (action.type === "createNetworkAdCampaign") {
+    const campaign = state.campaigns.find(
+      (item) => item.id === action.campaignId,
+    );
+    const item = state.content.find(
+      (content) => content.id === action.contentId,
+    );
+    if (!campaign || !item || item.campaignId !== campaign.id)
+      return { ok: false, error: "Paid ad creative was not found." };
+    if (item.channel !== "Meta Ads" && item.channel !== "Google Ads")
+      return { ok: false, error: "Choose a Meta Ads or Google Ads creative." };
+    if (!(["APPROVED", "SCHEDULED"] as string[]).includes(item.state))
+      return {
+        ok: false,
+        error: "Approve this paid ad before creating the provider campaign.",
+      };
+    if (item.externalId)
+      return {
+        ok: true,
+        data: { externalId: item.externalId, idempotent: true },
+      };
+    const product = state.products.find(
+      (candidate) => candidate.id === campaign.plan.productId,
+    );
+    const result = await performAction(
+      {
+        type: "createPaidAd",
+        name: campaign.title,
+        platform: item.channel,
+        objective: campaign.objective,
+        budget: action.budget,
+        headline: item.title,
+        body: item.body,
+        targetUrl: product?.productUrl ?? state.brand.website,
+        confirmed: true,
+      },
+      userId,
+    );
+    if (!result.ok) return result;
+    const payload = result.data as { externalId: string };
+    await database()
+      .prepare(
+        "UPDATE content_items SET external_id = ?, updated_at = ? WHERE id = ?",
+      )
+      .bind(payload.externalId, now(), item.id)
+      .run();
+    const auditId = await audit(
+      userId,
+      "CONTENT_AD_LINKED",
+      "ContentItem",
+      item.id,
+      `Linked approved ${item.channel} creative to provider campaign ${payload.externalId}`,
+    );
+    return {
+      ok: true,
+      data: { ...payload, idempotent: false },
+      auditEventId: auditId,
+    };
+  }
   if (action.type === "retrySync") {
     const sync = state.syncs.find((item) => item.id === action.syncId);
     if (!sync) return { ok: false, error: "Sync not found." };
@@ -1334,53 +1669,167 @@ export async function performAction(
     return { ok: true, data: { runId }, auditEventId: auditId };
   }
   if (action.type === "createPaidAd") {
-    const adId = id("ad");
-    const key = `create-ad:${adId}`;
-    const adapter = new MockIntegrationAdapter(
-      action.platform === "Meta Ads" ? "int-meta" : "int-google-ads",
-      [],
+    const definitionId =
+      action.platform === "Meta Ads" ? "int-meta" : "int-google-ads";
+    const key = `create-ad:${definitionId}:${action.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+    const completed = await find(
+      "SELECT external_id FROM operation_ledger WHERE idempotency_key = ? AND status = 'COMPLETED'",
+      key,
     );
-    const result = await adapter.createAdCampaign!(action.name, key);
-    await database()
-      .prepare(
-        "INSERT INTO paid_ad_campaigns (id, workspace_id, name, platform, objective, state, budget, spend, results, date_range, creative_json, external_id) VALUES (?, 'ws-northstar', ?, ?, ?, 'PAUSED', ?, 0, 0, 'Aug 24 – Sep 14', ?, ?)",
-      )
-      .bind(
+    if (completed)
+      return {
+        ok: true,
+        data: { externalId: String(completed.external_id), idempotent: true },
+      };
+    try {
+      const credential = await getFreshProviderCredential(definitionId);
+      const start = new Date(Date.now() + 24 * 60 * 60_000);
+      const end = new Date(start.getTime() + 21 * 24 * 60 * 60_000);
+      const startDate = start.toISOString().slice(0, 10);
+      const endDate = end.toISOString().slice(0, 10);
+      const targetUrl = action.targetUrl ?? state.brand.website;
+      const result =
+        definitionId === "int-meta"
+          ? await createPausedMetaAdsCampaign({
+              auth: {
+                accessToken: credential.accessToken,
+                adAccountId: credential.providerAccountId!,
+                pageId: credential.metadata.selectedAssets.pageId,
+              },
+              campaignName: action.name,
+              budget: action.budget,
+              startDate,
+              endDate,
+              creative: {
+                headline: action.headline,
+                body: action.body,
+                targetUrl,
+              },
+            })
+          : await createPausedGoogleAdsCampaign({
+              auth: {
+                accessToken: credential.accessToken,
+                customerId: credential.providerAccountId!,
+                loginCustomerId: credential.metadata.loginCustomerId,
+              },
+              campaignName: action.name,
+              budget: action.budget,
+              startDate,
+              endDate,
+              creative: {
+                headline: action.headline,
+                body: action.body,
+                targetUrl,
+              },
+            });
+      const adId = id("ad");
+      await database().batch([
+        database()
+          .prepare(
+            "INSERT INTO paid_ad_campaigns (id, workspace_id, name, platform, objective, state, budget, spend, results, date_range, creative_json, external_id) VALUES (?, 'ws-northstar', ?, ?, ?, 'PAUSED', ?, 0, 0, ?, ?, ?)",
+          )
+          .bind(
+            adId,
+            action.name,
+            action.platform,
+            action.objective,
+            Math.round(action.budget),
+            `${startDate} – ${endDate}`,
+            JSON.stringify([
+              { headline: action.headline, body: action.body, cta: "Learn more" },
+            ]),
+            result.campaignId,
+          ),
+        database()
+          .prepare(
+            "INSERT INTO operation_ledger (idempotency_key, operation, external_id, status, created_at) VALUES (?, 'create_ad_campaign', ?, 'COMPLETED', ?)",
+          )
+          .bind(key, result.campaignId, now()),
+      ]);
+      const auditId = await audit(
+        userId,
+        "PAID_CAMPAIGN_CREATED",
+        "PaidAdCampaign",
         adId,
-        action.name,
-        action.platform,
-        action.objective,
-        Math.round(action.budget),
-        JSON.stringify([
-          { headline: action.headline, body: action.body, cta: "Learn more" },
-        ]),
-        result.externalId,
-      )
-      .run();
-    await database()
-      .prepare(
-        "INSERT INTO operation_ledger (idempotency_key, operation, external_id, status, created_at) VALUES (?, 'create_ad_campaign', ?, 'COMPLETED', ?)",
-      )
-      .bind(key, result.externalId, now())
-      .run();
-    const auditId = await audit(
-      userId,
-      "PAID_CAMPAIGN_CREATED",
-      "PaidAdCampaign",
-      adId,
-      `Created paused ${action.platform} campaign with ${result.externalId}`,
-    );
-    return {
-      ok: true,
-      data: { adId, externalId: result.externalId },
-      auditEventId: auditId,
-    };
+        `Created paused ${action.platform} campaign ${result.campaignId}`,
+      );
+      return {
+        ok: true,
+        data: { adId, externalId: result.campaignId, idempotent: false },
+        auditEventId: auditId,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : `${action.platform} campaign creation failed.`,
+      };
+    }
   }
   if (action.type === "activatePaidAd") {
-    await database()
-      .prepare("UPDATE paid_ad_campaigns SET state = 'ACTIVE' WHERE id = ?")
-      .bind(action.adId)
-      .run();
+    const ad = await find(
+      "SELECT platform, external_id FROM paid_ad_campaigns WHERE id = ? AND workspace_id = 'ws-northstar'",
+      action.adId,
+    );
+    if (!ad?.external_id) return { ok: false, error: "Paid campaign not found." };
+    try {
+      const platform = String(ad.platform);
+      const campaignId = String(ad.external_id);
+      if (platform === "Meta Ads") {
+        const credential = await getFreshProviderCredential("int-meta");
+        await activateMetaAdsCampaign(
+          {
+            accessToken: credential.accessToken,
+            adAccountId: credential.providerAccountId!,
+            pageId: credential.metadata.selectedAssets.pageId,
+          },
+          campaignId,
+        );
+      } else if (platform === "Google Ads") {
+        const credential = await getFreshProviderCredential("int-google-ads");
+        await activateGoogleAdsCampaign(
+          {
+            accessToken: credential.accessToken,
+            customerId: credential.providerAccountId!,
+            loginCustomerId: credential.metadata.loginCustomerId,
+          },
+          campaignId,
+        );
+      } else if (platform === "ChatGPT Ads") {
+        const credential = await getProviderCredential("int-chatgpt-ads");
+        if (!credential) throw new Error("Connect ChatGPT Ads first.");
+        await activateChatGPTAdCampaign(campaignId, credential.accessToken);
+      } else if (platform === "Reddit Ads") {
+        const credential = await getFreshProviderCredential("int-reddit-ads");
+        await activateRedditAdCampaign(campaignId, {
+          accessToken: credential.accessToken,
+          adAccountId: credential.providerAccountId!,
+          profileId: credential.metadata.selectedAssets.profileId,
+          fundingInstrumentId:
+            credential.metadata.selectedAssets.fundingInstrumentId,
+          pixelId: credential.metadata.selectedAssets.pixelId,
+          userAgent:
+            (env as unknown as Record<string, string>).REDDIT_ADS_USER_AGENT ??
+            "GrowthOS/1.0",
+        });
+      } else {
+        throw new Error("This provider does not support live activation.");
+      }
+      await database()
+        .prepare("UPDATE paid_ad_campaigns SET state = 'ACTIVE' WHERE id = ?")
+        .bind(action.adId)
+        .run();
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Provider campaign activation failed.",
+      };
+    }
     const auditId = await audit(
       userId,
       "PAID_CAMPAIGN_ACTIVATED",
