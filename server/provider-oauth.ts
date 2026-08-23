@@ -125,7 +125,7 @@ export async function createProviderAuthorizationUrl(
     redirect_uri: callbackUrl(request, provider),
     response_type: "code",
     duration: "permanent",
-    scope: "identity adsread adsedit",
+    scope: "adsread,adsedit",
     state: stateId,
   }).toString();
   return url.toString();

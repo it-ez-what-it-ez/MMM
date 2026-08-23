@@ -58,7 +58,7 @@ OpenAI's current Ads API uses account-scoped API keys rather than advertiser OAu
 
 Product campaigns also include a native sponsored-post preview. After approval and explicit budget confirmation, GrowthOS can use Reddit Ads API v3 to create a Traffic campaign, ad group, structured text post, and ad. Every object is created paused, and the returned provider IDs, preview URL, and review state are persisted.
 
-Live account login requires a Reddit developer app configured by the platform owner. The user authorizes `identity`, `adsread`, and `adsedit`, then selects an ad account, profile, funding instrument, and conversion pixel in GrowthOS. See Reddit's [API overview](https://ads-api.reddit.com/docs/v3/), [authentication guide](https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application), and [campaign setup guide](https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup).
+Live account login requires a Reddit developer app configured by the platform owner. The user authorizes `adsread` and `adsedit`, then selects an ad account, profile, funding instrument, and conversion pixel in GrowthOS. See Reddit's [API overview](https://ads-api.reddit.com/docs/v3/), [authentication guide](https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application), and [campaign setup guide](https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup).
 
 ## Meta and Google Ads
 

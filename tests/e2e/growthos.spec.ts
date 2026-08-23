@@ -52,8 +52,15 @@ test("advertising connections expose real provider setup without mock accounts",
   for (const provider of ["Meta Ads", "Google Ads", "Reddit Ads", "ChatGPT Ads"])
     await expect(section.getByRole("heading", { name: provider })).toBeVisible();
   await expect(
-    section.getByRole("button", { name: /Platform setup required/ }),
+    section.getByRole("button", { name: /Set up GrowthOS/ }),
   ).toHaveCount(3);
+  await section.getByRole("button", { name: /Set up GrowthOS/ }).first().click();
+  const setupDialog = page.getByRole("dialog", { name: "Set up Meta Ads" });
+  await expect(setupDialog.getByText("This is a GrowthOS operator task")).toBeVisible();
+  await expect(
+    setupDialog.getByText(/\/api\/oauth\/meta\/callback/),
+  ).toBeVisible();
+  await setupDialog.getByRole("button", { name: "Close", exact: true }).click();
   await section.getByRole("button", { name: /Connect account/ }).click();
   const dialog = page.getByRole("dialog", { name: "Connect ChatGPT Ads" });
   await expect(dialog.getByLabel("Ads API key")).toHaveAttribute("type", "password");
@@ -62,6 +69,7 @@ test("advertising connections expose real provider setup without mock accounts",
   const serialized = JSON.stringify(await stateResponse.json());
   expect(serialized).not.toContain("encryptedAccessToken");
   expect(serialized).not.toContain("encryptedRefreshToken");
+  await expect(page.getByText("Northstar Google Ads")).toHaveCount(0);
 
   const googleStart = await page.request.get(
     "/api/oauth/google/start?return_to=/app/integrations",

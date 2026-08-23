@@ -14,7 +14,9 @@ import {
   ChevronRight,
   CircleDollarSign,
   Clock3,
+  Copy,
   Database,
+  ExternalLink,
   FileText,
   Gauge,
   Globe2,
@@ -3423,28 +3425,12 @@ function Integrations({
   const [providerAssets, setProviderAssets] = useState<Record<string, string>>(
     {},
   );
-  const categories = [
-    "All",
-    "Advertising",
-    "Analytics",
-    "CRM",
-    "Content management",
-    "Customer data",
-    "Databases",
-    "Email",
-    "Messaging",
-    "Payments",
-    "Social publishing",
-    "Storage",
-    "Webhooks",
-  ];
-  const filtered = state.definitions.filter(
-    (definition) =>
-      (category === "All" || definition.category === category) &&
-      `${definition.name} ${definition.description}`
-        .toLowerCase()
-        .includes(search.toLowerCase()),
-  );
+  const [setupProvider, setSetupProvider] = useState<
+    "meta" | "google" | "reddit" | null
+  >(null);
+  const [copiedCallback, setCopiedCallback] = useState(false);
+  const currentOrigin =
+    typeof window === "undefined" ? "" : window.location.origin;
   const openWizard = (definition?: IntegrationDefinition) => {
     const realProvider = definition
       ? [
@@ -3455,7 +3441,23 @@ function Integrations({
         ].find(([definitionId]) => definitionId === definition.id)
       : undefined;
     if (definition && realProvider) {
-      openProvider(definition.id, realProvider[1]);
+      const provider = providerDefinitions.find(
+        (item) => item.definitionId === definition.id,
+      );
+      const live = state.providerConnections.find(
+        (item) => item.definitionId === definition.id,
+      );
+      if (
+        provider &&
+        provider.key !== "chatgpt" &&
+        !state.providerOwnerSetup[provider.key] &&
+        !live
+      ) {
+        setCopiedCallback(false);
+        setSetupProvider(provider.key);
+      } else {
+        openProvider(definition.id, realProvider[1]);
+      }
       return;
     }
     setSelected(definition ?? null);
@@ -3463,11 +3465,99 @@ function Integrations({
     setWizard(true);
   };
   const providerDefinitions = [
-    { definitionId: "int-meta", key: "meta", oauth: "meta" },
-    { definitionId: "int-google-ads", key: "google", oauth: "google" },
-    { definitionId: "int-reddit-ads", key: "reddit", oauth: "reddit" },
-    { definitionId: "int-chatgpt-ads", key: "chatgpt", oauth: null },
+    {
+      definitionId: "int-meta",
+      key: "meta",
+      oauth: "meta",
+      consoleUrl: "https://developers.facebook.com/apps/",
+      docsUrl: "https://developers.facebook.com/docs/marketing-apis/",
+      secretNames: ["META_ADS_APP_ID", "META_ADS_APP_SECRET"],
+      setupSteps: [
+        "Create a GrowthOS app in Meta for Developers.",
+        "Add Facebook Login and the Marketing API, then register the callback URL below.",
+        "Request production access to the advertising and Page permissions used by GrowthOS.",
+        "Save the App ID and App Secret as protected GrowthOS deployment secrets.",
+      ],
+    },
+    {
+      definitionId: "int-google-ads",
+      key: "google",
+      oauth: "google",
+      consoleUrl: "https://ads.google.com/aw/apicenter",
+      docsUrl: "https://developers.google.com/google-ads/api/docs/oauth/overview",
+      secretNames: [
+        "GOOGLE_ADS_CLIENT_ID",
+        "GOOGLE_ADS_CLIENT_SECRET",
+        "GOOGLE_ADS_DEVELOPER_TOKEN",
+      ],
+      setupSteps: [
+        "Create a web OAuth client for GrowthOS in Google Cloud and configure the consent screen.",
+        "Register the callback URL below and enable the restricted Google Ads scope.",
+        "Apply for a developer token from a Google Ads manager account.",
+        "Save the OAuth credentials and developer token as protected GrowthOS deployment secrets.",
+      ],
+    },
+    {
+      definitionId: "int-reddit-ads",
+      key: "reddit",
+      oauth: "reddit",
+      consoleUrl:
+        "https://ads-api.reddit.com/docs/v3/guides/quick-start/create-dev-app",
+      docsUrl:
+        "https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application",
+      secretNames: [
+        "REDDIT_ADS_CLIENT_ID",
+        "REDDIT_ADS_CLIENT_SECRET",
+        "REDDIT_ADS_USER_AGENT",
+      ],
+      setupSteps: [
+        "Use a verified Reddit Business admin account to create a GrowthOS developer application.",
+        "Register the callback URL below and enable adsread and adsedit access.",
+        "Create an honest application user-agent identifier.",
+        "Save the App ID, App Secret, and user agent as protected GrowthOS deployment secrets.",
+      ],
+    },
+    {
+      definitionId: "int-chatgpt-ads",
+      key: "chatgpt",
+      oauth: null,
+      consoleUrl: "https://ads.openai.com",
+      docsUrl: "https://developers.openai.com/ads/api-reference/authentication",
+      secretNames: [],
+      setupSteps: [],
+    },
   ] as const;
+  const providerDefinitionIds = new Set(
+    providerDefinitions.map((provider) => provider.definitionId),
+  );
+  const authorizedConnectionIds = new Set(
+    state.providerConnections
+      .filter((connection) => Boolean(connection.providerAccountId))
+      .map((connection) => connection.connectionId),
+  );
+  const visibleConnections = state.connections.filter(
+    (connection) =>
+      providerDefinitionIds.has(
+        connection.definitionId as (typeof providerDefinitions)[number]["definitionId"],
+      ) && authorizedConnectionIds.has(connection.id),
+  );
+  const categories = ["All", "Advertising"];
+  const filtered = state.definitions.filter(
+    (definition) =>
+      providerDefinitionIds.has(
+        definition.id as (typeof providerDefinitions)[number]["definitionId"],
+      ) &&
+      (category === "All" || definition.category === category) &&
+      `${definition.name} ${definition.description}`
+        .toLowerCase()
+        .includes(search.toLowerCase()),
+  );
+  const selectedSetup = providerDefinitions.find(
+    (provider) => provider.key === setupProvider,
+  );
+  const setupCallback = selectedSetup?.oauth
+    ? `${currentOrigin}/api/oauth/${selectedSetup.oauth}/callback`
+    : "";
   const openProvider = (definitionId: string, oauth: string | null) => {
     const provider = state.providerConnections.find(
       (item) => item.definitionId === definitionId,
@@ -3526,12 +3616,7 @@ function Integrations({
       <PageHeader
         eyebrow="Activate"
         title="Integrations"
-        description="Connect the data and destinations that power every GrowthOS action."
-        actions={
-          <button className="button primary" onClick={() => openWizard()}>
-            <Plus /> Add integration
-          </button>
-        }
+        description="Set up each advertising provider once, then let customers securely connect their own accounts."
       />
       <section className="card">
         <div className="card-head">
@@ -3577,8 +3662,14 @@ function Integrations({
                 </p>
                 <button
                   className="button secondary full"
-                  disabled={!setup && !live}
-                  onClick={() => openProvider(provider.definitionId, provider.oauth)}
+                  onClick={() => {
+                    if (!setup && !live && provider.key !== "chatgpt") {
+                      setCopiedCallback(false);
+                      setSetupProvider(provider.key);
+                      return;
+                    }
+                    openProvider(provider.definitionId, provider.oauth);
+                  }}
                 >
                   {ready
                     ? "Manage connection"
@@ -3586,7 +3677,7 @@ function Integrations({
                       ? "Choose account"
                       : setup
                         ? "Connect account"
-                        : "Platform setup required"}
+                        : "Set up GrowthOS"}
                   <ArrowRight />
                 </button>
               </article>
@@ -3609,13 +3700,13 @@ function Integrations({
           className={view === "connected" ? "active" : ""}
           onClick={() => setView("connected")}
         >
-          Connected <span>{state.connections.length}</span>
+          Connected <span>{visibleConnections.length}</span>
         </button>
         <button
           className={view === "browse" ? "active" : ""}
           onClick={() => setView("browse")}
         >
-          Browse catalog <span>{state.definitions.length}</span>
+          Available providers <span>{providerDefinitions.length}</span>
         </button>
       </div>
       {view === "connected" ? (
@@ -3647,7 +3738,29 @@ function Integrations({
               <span>Last activity</span>
               <span />
             </div>
-            {state.connections
+            {!visibleConnections.filter((connection) => {
+              const definition = state.definitions.find(
+                (item) => item.id === connection.definitionId,
+              );
+              return (
+                !search ||
+                `${definition?.name} ${connection.accountName}`
+                  .toLowerCase()
+                  .includes(search.toLowerCase())
+              );
+            }).length && (
+              <div className="integration-empty-row">
+                <Link2 />
+                <span>
+                  <strong>No live advertising accounts yet</strong>
+                  <small>
+                    Complete the one-time provider setup above. Customers will
+                    then see a real provider login instead of a demo account.
+                  </small>
+                </span>
+              </div>
+            )}
+            {visibleConnections
               .filter((connection) => {
                 const definition = state.definitions.find(
                   (item) => item.id === connection.definitionId,
@@ -3741,7 +3854,7 @@ function Integrations({
             </div>
             <div className="catalog-grid">
               {filtered.map((definition) => {
-                const connection = state.connections.find(
+                const connection = visibleConnections.find(
                   (item) => item.definitionId === definition.id,
                 );
                 return (
@@ -3974,6 +4087,103 @@ function Integrations({
             </button>
           )}
         </footer>
+      </Modal>
+      <Modal
+        open={Boolean(selectedSetup)}
+        onClose={() => setSetupProvider(null)}
+        title={`Set up ${
+          state.definitions.find(
+            (definition) => definition.id === selectedSetup?.definitionId,
+          )?.name ?? "advertising provider"
+        }`}
+        eyebrow="One-time GrowthOS setup"
+        wide
+      >
+        {selectedSetup && (
+          <>
+            <div className="modal-body provider-setup-guide">
+              <div className="alert amber compact-alert">
+                <ShieldCheck />
+                <span>
+                  <strong>This is a GrowthOS operator task</strong>
+                  <small>
+                    Customers should never create these credentials. Once this
+                    setup is complete, their button becomes “Connect account”
+                    and sends them to the provider’s real authorization screen.
+                  </small>
+                </span>
+              </div>
+              <div className="provider-setup-layout">
+                <section>
+                  <h3>Launch checklist</h3>
+                  <ol className="provider-setup-steps">
+                    {selectedSetup.setupSteps.map((step, index) => (
+                      <li key={step}>
+                        <span>{index + 1}</span>
+                        <p>{step}</p>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+                <aside>
+                  <div className="provider-callback-box">
+                    <span>Authorized redirect URL</span>
+                    <code>{setupCallback}</code>
+                    <button
+                      className="button secondary"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(setupCallback);
+                        setCopiedCallback(true);
+                      }}
+                    >
+                      {copiedCallback ? <Check /> : <Copy />}
+                      {copiedCallback ? "Copied" : "Copy callback"}
+                    </button>
+                  </div>
+                  <div className="provider-secret-box">
+                    <span>Protected deployment secrets</span>
+                    <div>
+                      <code>PROVIDER_TOKEN_ENCRYPTION_KEY</code>
+                      {selectedSetup.secretNames.map((secret) => (
+                        <code key={secret}>{secret}</code>
+                      ))}
+                    </div>
+                    <small>
+                      Keep these server-side. Never paste them into a customer
+                      form or commit them to source control.
+                    </small>
+                  </div>
+                </aside>
+              </div>
+            </div>
+            <footer className="modal-footer provider-setup-footer">
+              <a
+                className="button secondary"
+                href={selectedSetup.docsUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Read official guide <ExternalLink />
+              </a>
+              <div>
+                <button
+                  className="button ghost"
+                  onClick={() => setSetupProvider(null)}
+                >
+                  Close
+                </button>
+                <a
+                  className="button primary"
+                  href={selectedSetup.consoleUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Start provider setup <ExternalLink />
+                </a>
+              </div>
+            </footer>
+          </>
+        )}
       </Modal>
       <Modal
         open={apiKeyOpen}
