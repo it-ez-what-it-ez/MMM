@@ -1,31 +1,38 @@
-# GrowthOS
+# GrowthOS V1
 
-GrowthOS is a private, hosted SaaS prototype for orchestrating marketing work from connected context through activation and learning. The seeded **Northstar Analytics** workspace demonstrates a complete Plan → Create → Approve → Send loop with deterministic providers, durable data, role enforcement, and observable operations.
+GrowthOS turns a real product and brand into a complete ecommerce campaign that a marketer can see, edit, approve, and hand off. This is the focused V1 product—not a broad marketing-operations demo.
 
-The application is original product work inspired by the operational clarity of modern composable marketing platforms. It does not reuse third-party copy, branding, illustrations, or proprietary assets.
+## V1 workflow
 
-## What is included
+1. Add a product with its image, description, price, and destination URL.
+2. Save the brand foundation and voice that every campaign must follow.
+3. Pick an occasion or describe the result you want.
+4. Review the actual Instagram, Facebook, TikTok, email, SMS, paid-ad, and ChatGPT Ads creative.
+5. Create editable drafts, submit individual assets for approval, and schedule approved work.
+6. Export the complete campaign as CSV or use an enabled provider action.
 
-- A focused Today home with one recommended next action, work to continue, approvals, upcoming schedules, and three performance metrics
-- A durable Agent workspace that turns one outcome into an evidence-backed audience, campaign, creative, destination, and forecast proposal
-- Specialized Lifecycle, Performance, and Cross-channel agent modes with recorded tool steps, reusable context, and explicit human confirmation
-- End-to-end agent execution into editable campaign drafts and paused provider ad campaigns; approval, publishing, and spend activation remain separate safeguards
-- Channel-first workspaces for Social, Email & Messaging, Paid Ads, and Web & Content; every workspace uses the same Work → Templates → Results structure
-- Integration catalog, connection wizard, connection health, capabilities, and detail views
-- Brand Kit, voice controls, media and source material management, and protected website import
-- Template-first campaign creation in three focused steps, plus a secondary one-objective custom AI flow
-- Persistent campaign-template library with Halloween, BFCM, Black Friday, Cyber Monday, holiday, product-launch, webinar, and win-back playbooks
-- Visual product campaign template with Instagram posts and carousels, Reels, Facebook posts, TikTok storyboards, full email, SMS, paid-ad, and professional-social mockups
-- Pre-selection template inspection, approved product-media selection from Brand & Assets, highlighted placeholders, and a visual confirmation bundle before drafts are created
-- Recommended template collections and search, visual channel workspaces, and a weekly cross-channel review plan
-- Shared launch-readiness checks across campaign creation, campaign overview, and formal approvals
-- Audience composition and overlap previews plus marketer-friendly sync delivery diagnostics
-- Editable template variables and complete 7–11 asset bundles scheduled relative to the selected campaign start date
-- Approval inbox, comments, bulk decisions, scheduling, and idempotent simulated publishing
-- Nested audience rules, consent filtering, customer preview, and destination eligibility
-- Four-tab campaign workspaces (Overview, Content, Schedule, Results), list-first approvals, simplified calendar and insights, plus full advanced tools under Manage
-- Deterministic AI and integration adapters with stable provider IDs and recoverable failures
-- Seeded Owner, Marketer, Reviewer, and Viewer identities for permission testing
+The main product has six workspaces: Home, Campaigns, Products & Brand, Approvals, Calendar, and Results. Older operational routes remain compatible for existing deep links, but they are deliberately absent from the V1 navigation.
+
+## Real product behavior
+
+- Products, brand data, campaigns, content versions, schedules, approvals, results, audit events, and operation IDs persist in Cloudflare D1.
+- Product images are validated and stored in Cloudflare R2.
+- Every mutation is Zod validated and role checked on the server.
+- Drafts do not publish themselves. Approval and consequential provider actions require explicit confirmation.
+- Provider writes use an operation ledger so a completed action is not duplicated after refresh or retry.
+- The campaign CSV endpoint provides a practical handoff when a channel adapter is not enabled.
+
+## ChatGPT Ads
+
+Product campaigns include a real chat-card preview. After the creative is approved, GrowthOS can use OpenAI's Advertiser API to:
+
+- upload the selected product image;
+- create the Campaign → Ad Group → Ad hierarchy;
+- apply a confirmed lifetime budget;
+- create every provider object in `paused` state;
+- retain the returned ad ID and review state in the campaign and audit log.
+
+Live creation is disabled until `OPENAI_ADS_API_KEY` is configured as a server secret. Obtain the account-scoped key in [OpenAI Ads Manager](https://ads.openai.com). The integration follows the official [API overview](https://developers.openai.com/ads/api-overview), [quickstart](https://developers.openai.com/ads/api-quickstart), and [ads reference](https://developers.openai.com/ads/api-reference/ads).
 
 ## Local development
 
@@ -36,26 +43,14 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The root route redirects to `/app`. Vinext and Miniflare provide local Cloudflare D1 and R2 bindings from `.openai/hosting.json`; no external database or provider credentials are required.
+Open [http://localhost:3000](http://localhost:3000). Vinext and Miniflare provide local D1 and R2 bindings from `.openai/hosting.json`.
 
-The local database is migrated and seeded automatically on first access. Migrations and seeding are repeatable and use stable seeded identifiers.
-
-## Demo identities
-
-Use the identity switcher in the application header:
-
-| Identity   | Role     | Capabilities                                                       |
-| ---------- | -------- | ------------------------------------------------------------------ |
-| Maya Chen  | Owner    | Full workspace, connection, activation, and settings control       |
-| Priya Shah | Marketer | Campaigns, content, audiences, scheduling, and approved publishing |
-| Eli Morgan | Reviewer | Approve, reject, request changes, and comment                      |
-| Sofia Kim  | Viewer   | Read-only workspace access                                         |
-
-The selected identity is stored in an HTTP-only demo-session cookie. Every mutation is authorized again on the server and recorded in the audit log.
+No credential is needed for the complete product-to-approved-draft workflow. Optional server-only settings are documented in `.env.example`.
 
 ## Validation
 
 ```bash
+npm run db:generate
 npm run typecheck
 npm run lint
 npm test
@@ -63,25 +58,6 @@ npm run test:e2e
 npm run build
 ```
 
-Playwright covers Today, the agent outcome-to-draft journey, all four channel workspaces, custom AI creation, visual product-template inspection, the three-step BFCM flow, four-tab campaign routing, Manage access, responsive navigation, integrations, approval, publication idempotency, paused paid-campaign creation, and insights. Unit tests additionally cover agent skill/template routing, confirmation guardrails, channel classification, template filtering, product-format coverage, simplified navigation, legacy aliases, and campaign-tab routing.
+Playwright covers product upload persistence, the three-step BFCM journey, visual ChatGPT ad review, provider-key gating, approval enforcement, idempotent publishing, CSV export, responsive navigation, and role restrictions.
 
-The template acceptance journey creates an 11-asset BFCM campaign in three focused steps and verifies that every generated draft has a persisted relative schedule.
-
-## Persistence and providers
-
-- Cloudflare D1 stores workspace, workflow, metrics, operation-ledger, and audit records.
-- Cloudflare R2 stores approved image uploads and source assets.
-- `AIProvider` and `IntegrationAdapter` are server-only typed contracts in `server/providers.ts`.
-- `MarketingAgent` and its typed tools live in `server/marketing-agent.ts`; every run and tool step is persisted in D1 for refresh-safe review and auditability.
-- `MockAIProvider` is the default and produces deterministic, Zod-validated output.
-- `RemoteAIProvider` activates only when `AI_PROVIDER=remote` and its server-only URL, API key, and model are configured; invalid or unavailable responses recover safely to deterministic generation.
-- Mock adapters simulate Meta Ads, Google Ads, Instagram, LinkedIn, Klaviyo, WordPress, Google Analytics, and Slack without collecting credentials.
-- Consequential AI actions return confirmation proposals; publish, activation, budget, deletion, and bulk approval always require a user-confirmed server mutation.
-
-The included remote boundary sends `{ model, operation, input }` to a vendor-neutral JSON endpoint and accepts a structured value directly or inside `{ data }` / `{ output }`. To add a specialized provider, implement `AIProvider`, validate its output with the exported schemas, and retain the deterministic fallback. To add an external destination, implement `IntegrationAdapter`, declare capabilities, and route writes through the operation ledger using an idempotency key.
-
-## Environment
-
-Copy `.env.example` to `.env.local` only when extending the server-only provider layer. The shipped product does not require or expose secrets.
-
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for data flow and security decisions and [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the delivery map.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for system boundaries and [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the V1 scope.

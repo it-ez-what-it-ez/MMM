@@ -326,6 +326,26 @@ export const mediaAssets = sqliteTable("media_assets", {
   createdAt: text("created_at").notNull(),
 });
 
+export const products = sqliteTable(
+  "products",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    price: text("price").notNull(),
+    currency: text("currency").notNull(),
+    productUrl: text("product_url").notNull(),
+    mediaId: text("media_id"),
+    status: text("status").notNull(),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+  },
+  (table) => [
+    index("idx_products_workspace_status").on(table.workspaceId, table.status),
+  ],
+);
+
 export const sourceMaterials = sqliteTable("source_materials", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id").notNull(),

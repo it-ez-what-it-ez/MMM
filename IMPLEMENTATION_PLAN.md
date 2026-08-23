@@ -1,26 +1,37 @@
-# GrowthOS implementation plan
+# GrowthOS V1 delivery map
 
-## Product
+## Product promise
 
-- Build a hosted, product-only GrowthOS demo for the seeded Northstar Analytics workspace.
-- Cover the complete loop from integrations and brand context through campaign creation, approval, simulated publishing, and insights.
-- Use a comfortable, channel-first enterprise interface with restrained teal operational accents and progressively disclosed AI and advanced controls.
+An ecommerce marketer can add a product and leave with a complete, visible, approval-ready campaign—without learning a CDP, sync platform, or complex agent workspace.
 
-## Architecture
+## Included in V1
 
-- Use the Vinext App Router starter with React, strict TypeScript, Tailwind CSS, Zod, Recharts, and Lucide icons.
-- Persist structured product state in D1 and media/source files in R2.
-- Keep AI and integration providers behind server-only typed adapters; use deterministic mock implementations by default.
-- Persist marketing-agent runs and ordered tool traces, then route confirmed proposals through the existing idempotent campaign and provider actions.
-- Attribute every mutation to a seeded demo identity and enforce role permissions server-side.
+- Six-workspace application shell: Home, Campaigns, Products & Brand, Approvals, Calendar, Results
+- Persistent product catalog with R2 image upload
+- Persistent brand foundation and voice
+- Product-first, three-decision campaign creation
+- Seasonal and evergreen templates including BFCM, Black Friday, Halloween, holiday, win-back, and product launch
+- Platform-shaped previews for Instagram carousel and Reels, Facebook, TikTok, email, SMS, standard paid ads, and ChatGPT chat cards
+- Immutable content versions, human approval, scheduling, audit history, and idempotent publishing
+- CSV campaign export
+- Optional real ChatGPT Ads provider creation, paused and review-aware by default
+- Desktop and mobile navigation, keyboard focus, loading, errors, and empty states
 
-## Delivery
+## Deliberately deferred
 
-- Seed the Northstar Analytics workspace and all required campaigns, content, approvals, audiences, syncs, ads, metrics, recommendations, and activity.
-- Seed and persist seasonal and evergreen campaign templates with editable variables, multi-channel bundles, and template-use history.
-- Render platform-specific creative previews before template selection and approval, including product/media placeholders, carousel slides, short-video storyboards, email, and SMS.
-- Keep creation template-first in three steps, reduce campaign workspaces to four route-addressable tabs, and derive four channel workspaces without duplicating records.
-- Keep Calendar and Approvals separate, move advanced administration under Manage, and use a five-item mobile bottom bar.
-- Add a focused Agent workspace with Lifecycle, Performance, and Cross-channel specialties, evidence inspection, real creative previews, connection checks, forecasts, and human-confirmed execution into drafts.
-- Add unit and Playwright coverage for the core workflow.
-- Complete type, lint, test, build, and private deployment validation.
+- External authentication, billing, invitations, and multiple workspaces
+- Automatic paid-campaign activation or budget increases
+- Real Meta, Google, TikTok, social-posting, and email-provider credentials
+- General CDP modeling, audience activation, reverse ETL, and sync administration in the primary UI
+- Autonomous publishing without a human approval decision
+
+## Acceptance gate
+
+- A product image and metadata persist across refreshes.
+- A BFCM campaign is reviewable and created in three focused decisions.
+- The user sees the exact channel creative before confirming.
+- ChatGPT Ads creation cannot proceed without approval, a real image, explicit budget confirmation, and a server API key.
+- Provider objects are created paused and stable IDs are retained.
+- Viewer cannot mutate workspace state.
+- Typecheck, lint, unit tests, browser tests, migration generation, and production build pass.
+- The validated release is deployed privately to the existing GrowthOS site.

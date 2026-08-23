@@ -77,6 +77,7 @@ export type Campaign = {
     templateName?: string;
     recommendedBudget?: number;
     variables?: Record<string, string>;
+    productId?: string;
   };
   ownerId: string;
   progress: number;
@@ -201,6 +202,18 @@ export type LearningPreference = {
   evidenceCount: number;
   explicit: boolean;
 };
+export type ProductRecord = {
+  id: string;
+  name: string;
+  description: string;
+  price: string;
+  currency: string;
+  productUrl: string;
+  mediaId?: string;
+  status: "ACTIVE" | "DRAFT" | "ARCHIVED";
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type MarketingAgentMode =
   | "LIFECYCLE"
@@ -302,6 +315,8 @@ export type AppState = {
   sources: SourceMaterial[];
   learning: LearningPreference[];
   agentRuns: MarketingAgentRun[];
+  products: ProductRecord[];
+  chatGptAdsConfigured: boolean;
 };
 
 export type ActionResult<T = unknown> =

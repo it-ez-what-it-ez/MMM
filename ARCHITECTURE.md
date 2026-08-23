@@ -1,81 +1,76 @@
-# GrowthOS architecture
+# GrowthOS V1 architecture
 
-## Runtime shape
+## Product boundary
 
-GrowthOS is a Vinext App Router application running React 19 on Cloudflare-compatible infrastructure. It uses one application deployment, a D1 relational database, and an R2 object bucket. Local development uses Miniflare emulators for the same bindings.
+GrowthOS V1 solves one job: turn a product and brand into campaign creative a marketer can confidently approve. The primary information architecture is intentionally small:
 
 ```text
-Browser UI
-  ├─ GET /api/state ───────────────┐
-  ├─ POST /api/action ─────────────┼─ Server routes ── Drizzle ── D1
-  ├─ POST /api/identity ───────────┤        │
-  ├─ POST /api/brand/import ───────┤        ├─ AIProvider
-  └─ POST /api/media ──────────────┘        ├─ IntegrationAdapter
-                                             ├─ MarketingAgent + tools
-                                             └─ R2
+Home
+  └─ recommended next action
+Products & Brand
+  └─ product facts + R2 image + reusable brand rules
+Campaigns
+  └─ Product → Campaign direction → Actual creative review
+Approvals
+  └─ human decision per immutable content version
+Calendar
+  └─ approved schedule
+Results
+  └─ campaign-level delivery and conversion totals
 ```
 
-The browser never receives provider credentials, direct database access, or an authorization decision it can override.
+Advanced legacy routes remain readable for deep-link compatibility, but they are not part of the V1 navigation or core journey.
 
-## Data model
+## Runtime and storage
 
-`db/schema.ts` defines the relational model for workspaces, members, demo sessions, brand profiles, integrations, connections, campaign templates and template-use history, campaigns, immutable content versions, approvals, comments, audiences, syncs and runs, paid ads, metrics, recommendations, preferences, media, source material, durable marketing-agent runs and tool steps, operation ledger entries, jobs, and audit events.
+The React 19 App Router application runs through Vinext on Cloudflare-compatible infrastructure.
 
-Flexible campaign plans, provider capabilities, voice settings, and nested audience rules are stored as JSON after Zod validation. Ownership, workflow state, idempotency, and relationships remain relational so they can be queried and enforced independently of flexible payloads.
+```text
+Browser
+  ├─ GET  /api/state
+  ├─ POST /api/action
+  ├─ POST /api/media ─────────────────────── R2
+  └─ GET  /api/campaign-export
+                 │
+                 ├─ validation + roles + workflow gates
+                 ├─ campaign/template rendering
+                 ├─ operation ledger + audit events
+                 ├─ D1 relational state
+                 └─ optional ChatGPT Ads Advertiser API
+```
 
-Template definitions are Zod-validated before seeding and again when read from D1. Instantiation merges persisted defaults with user-edited values and the explicit Brand Kit name, renders every asset, calculates each relative schedule in UTC, and records the template-to-campaign relationship. Generated content enters the same draft, versioning, approval, calendar, and publishing workflow as AI-created content.
+D1 stores product records, brand rules, templates, campaigns, content and immutable versions, approvals, schedules, metrics, provider IDs, operation keys, and audits. R2 stores validated PNG, JPEG, and WebP product images using workspace-scoped keys. `drizzle/0003_giant_karnak.sql` adds the V1 products table and index.
 
-Template assets are visually rendered according to their channel and format before selection, during customization, in final campaign review, and inside the approval dialog. Product media is selected from approved Brand & Assets records; uploaded image bytes remain in R2 and are returned through a workspace-scoped read route, while the chosen asset ID and name stay in the campaign plan JSON. Missing media intentionally renders as a visible replacement slot rather than pretending the campaign is complete.
+## Campaign creation
 
-Template discovery uses shared collection and search classifiers. Channel workspaces reuse the platform rendering layer instead of maintaining duplicate content records. Launch readiness is derived from the existing campaign, connection, approval, audience, schedule, and consent state. Audience overlap and sync diagnostics remain explainable demo projections over persisted records.
+The browser selects a persisted product and campaign template. Template variables are prefilled from product and brand facts. `instantiateCampaignTemplate` renders all channel copy and relative schedules. The user sees the rendered assets before any campaign record exists.
 
-`db/runtime.ts` applies numbered SQL migrations and performs idempotent seed insertion. The Northstar Analytics data set is deterministic, so fresh local and hosted environments start in a known acceptance state.
+After confirmation, one server action writes the campaign, draft content items, initial immutable versions, relative schedules, and template-use record. Subsequent edits create new versions and return the item to draft. Submission, approval, scheduling, and publication remain separate server-enforced state transitions.
 
-## Request and mutation flow
+## ChatGPT Ads adapter
 
-1. The HTTP-only demo session resolves a seeded identity.
-2. The server loads the workspace-scoped record graph.
-3. `server/actions.ts` validates the request with a discriminated Zod schema.
-4. Permission and workflow gates run on the server.
-5. Provider writes receive an operation-specific idempotency key.
-6. The operation ledger returns a prior result on retry or records the new stable provider ID.
-7. The mutation and its audit event are committed before the typed result is returned.
-8. The client refreshes canonical state from `/api/state`.
+`server/chatgpt-ads.ts` is a server-only boundary for `https://api.ads.openai.com/v1`. It never exposes `OPENAI_ADS_API_KEY` to the browser.
 
-Mutations return a consistent `ActionResult`: either `{ ok: true, data, auditEventId }` or `{ ok: false, error, fieldErrors, recoverable }`.
+The guarded action requires:
 
-## Provider boundaries
+1. an approved ChatGPT Ads content item;
+2. a persisted product URL and uploaded R2 image;
+3. an explicit budget confirmation;
+4. an account-scoped Ads API key.
 
-`AIProvider` owns brand extraction, campaign planning, content regeneration, and performance summaries. `MockAIProvider` is deterministic and its campaign output is parsed with `campaignPlanSchema` before persistence.
+It constrains chat-card titles and body copy to provider limits, uploads the image, and creates a paused campaign, paused ad group, and paused ad. Returned IDs and review status are audited. A completed operation key makes later retries return the existing provider result. No automatic activation or spend action exists in the V1 UI.
 
-`IntegrationAdapter` exposes connection testing and capability-gated publishing, ad creation, and audience sync operations. Mock adapters add realistic latency, deterministic identifiers, controlled failures, and observable results. Real adapters can replace them without changing UI or workflow code.
+## Security and correctness
 
-AI tools are separated into read tools and proposal tools. Any consequential action—publishing, activation, budget increase, deletion, or bulk approval—must produce a confirmation proposal and then pass through the same authorized mutation path as a manual action.
+- HTTP-only demo sessions resolve the seeded role; every write is authorized again on the server.
+- Viewer is read-only; Reviewer can decide approvals; Marketer and Owner can create products and campaigns.
+- All action payloads are parsed by a discriminated Zod schema.
+- Uploaded content is allowlisted by MIME type and size.
+- Product URLs are validated before persistence.
+- Unapproved work cannot be published or sent to ChatGPT Ads.
+- Secrets are server-only; the default local and hosted application contains none.
+- Consequential actions require an explicit `confirmed: true` payload and produce an audit event.
 
-`MarketingAgent` owns objective interpretation and tool orchestration. The default `MockMarketingAgent` deterministically reads current Brand Kit guidance, sources, media, audiences, connection health, insights, and measurement; selects a specialized lifecycle, performance, or cross-channel workflow; and persists an inspectable proposal plus ordered tool trace. Executing a confirmed proposal uses the same template-instantiation path as manual creation, commits the campaign, content versions, template-use record, optional paused paid campaign, agent result, and idempotency ledger entry as one D1 batch, and records an audit event. It never submits, approves, publishes, or activates spend.
+## Validation
 
-## Security and governance
-
-- Demo identity is stored in an HTTP-only, `SameSite=Lax` cookie.
-- All writes are role checked server-side; Viewer remains read-only.
-- Workspace approval mode prevents unapproved publishing regardless of client state.
-- Website import accepts only HTTP(S), resolves DNS, blocks private/local addresses, checks every redirect manually, applies timeout and response-size limits, and strips scripts before extraction.
-- Uploads are allowlisted by MIME type and written to R2 with workspace-scoped keys.
-- Secrets are server-only and none are required by the default product.
-- Stable operation keys prevent duplicate external writes across refreshes and retries.
-- Audit events capture actor, action, entity, result, and metadata for every meaningful mutation.
-
-## Client structure
-
-`app/components/GrowthOSApp.tsx` contains the shared shell and functional product surfaces. Product naming, navigation, metadata, feature labels, the shared `ChannelKey` classifier, route aliases, and campaign-tab routing are centralized in `lib/product.ts`; colors, spacing, focus, responsive behavior, and light/dark tokens live in `app/globals.css`.
-
-The client derives Social, Email & Messaging, Paid Ads, and Web & Content workspaces from the existing campaign, content, template, paid-ad, schedule, and metric records. The Agent workspace is reached through the small global Ask GrowthOS control and shows the exact context, evidence, tool steps, creative, destinations, forecast, and consequences before its one guarded action. This keeps the channel-first presentation free of duplicate data. Primary pages reveal only the next useful layer; Brand & Assets, Audiences, Connections & Syncs, Team, Audit, and Settings stay available under Manage.
-
-The UI is keyboard navigable, uses semantic controls for interactive cards and tabs, labels custom inputs, closes dialogs and drawers with Escape, and replaces the sidebar with a five-destination bottom bar on narrow screens. Charts are descriptive rather than decision-making controls, so the same metrics remain available in text.
-
-## Testing strategy
-
-- Vitest tests pure rules and consequential workflow gates.
-- Playwright exercises the persisted cross-page journey against local D1/R2 emulators.
-- TypeScript and ESLint protect server/client boundaries and accessibility semantics.
-- The production Vinext build validates Cloudflare deployment compatibility.
+Vitest covers domain rules, navigation scope, template rendering, and ChatGPT creative inclusion. Playwright exercises real D1/R2 persistence and cross-role workflows. TypeScript, ESLint, migration generation, and the production Vinext build protect the deployment boundary.

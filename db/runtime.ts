@@ -48,6 +48,8 @@ const schemaStatements = [
   `CREATE TABLE IF NOT EXISTS metric_snapshots (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, date TEXT NOT NULL, impressions INTEGER NOT NULL, engagement INTEGER NOT NULL, clicks INTEGER NOT NULL, leads INTEGER NOT NULL, spend INTEGER NOT NULL, revenue INTEGER NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS idx_metrics_workspace_date ON metric_snapshots(workspace_id, date)`,
   `CREATE TABLE IF NOT EXISTS media_assets (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, object_key TEXT, tags_json TEXT NOT NULL, approved_for_ai INTEGER NOT NULL, created_at TEXT NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS products (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL, price TEXT NOT NULL, currency TEXT NOT NULL, product_url TEXT NOT NULL, media_id TEXT, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS idx_products_workspace_status ON products(workspace_id, status)`,
   `CREATE TABLE IF NOT EXISTS source_materials (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL, source_url TEXT, extracted_text TEXT NOT NULL, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS learning_preferences (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, label TEXT NOT NULL, value TEXT NOT NULL, evidence_count INTEGER NOT NULL, explicit INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS audit_events (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, actor_id TEXT NOT NULL, action TEXT NOT NULL, entity_type TEXT NOT NULL, entity_id TEXT NOT NULL, detail TEXT NOT NULL, created_at TEXT NOT NULL)`,
@@ -75,7 +77,7 @@ async function insert(table: string, fields: string[], values: unknown[]) {
 
 async function seedCampaignTemplates() {
   const statement = db().prepare(
-    "INSERT OR IGNORE INTO campaign_templates (id, slug, name, description, category, occasion, badge, featured, duration_days, channels_json, audience, objective, offer, variables_json, assets_json, plan_json, recommended_budget, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT OR REPLACE INTO campaign_templates (id, slug, name, description, category, occasion, badge, featured, duration_days, channels_json, audience, objective, offer, variables_json, assets_json, plan_json, recommended_budget, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   );
   await db().batch(
     seededCampaignTemplates.map((template) =>
@@ -106,11 +108,50 @@ async function seedCampaignTemplates() {
   );
 }
 
+async function seedChatGPTAdsDefinition() {
+  await db()
+    .prepare(
+      "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-chatgpt-ads', 'ChatGPT Ads', 'chatgpt-ads', 'Create paused chat card campaigns and read their delivery status.', 'Advertising', 'DESTINATION', 'API_KEY', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'chatgpt-ads')",
+    )
+    .run();
+}
+
+async function seedProducts() {
+  const createdAt = "2026-08-20T14:00:00.000Z";
+  const statement = db().prepare(
+    "INSERT OR IGNORE INTO products (id, workspace_id, name, description, price, currency, product_url, media_id, status, created_at, updated_at) VALUES (?, 'ws-northstar', ?, ?, ?, 'CAD', ?, ?, 'ACTIVE', ?, ?)",
+  );
+  await db().batch([
+    statement.bind(
+      "product-growth-signals",
+      "Growth Signals",
+      "A focused analytics workspace that turns customer behavior into the next best marketing action.",
+      "$49 / month",
+      "https://northstar.example/growth-signals",
+      "media-1",
+      createdAt,
+      createdAt,
+    ),
+    statement.bind(
+      "product-activation-benchmark",
+      "2026 Activation Benchmark",
+      "A practical benchmark report for SaaS teams improving activation and time-to-value.",
+      "Free report",
+      "https://northstar.example/activation-benchmark",
+      "media-2",
+      createdAt,
+      createdAt,
+    ),
+  ]);
+}
+
 export async function initializeDatabase() {
   await db().batch(
     schemaStatements.map((statement) => db().prepare(statement)),
   );
   await seedCampaignTemplates();
+  await seedProducts();
+  await seedChatGPTAdsDefinition();
   const existing = await db()
     .prepare("SELECT id FROM workspaces LIMIT 1")
     .first();
@@ -1380,6 +1421,7 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
     learning,
     agentRuns,
     agentSteps,
+    products,
   ] = await Promise.all([
     rows("SELECT * FROM workspaces LIMIT 1"),
     rows(
@@ -1412,6 +1454,7 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
     rows(
       "SELECT * FROM marketing_agent_steps ORDER BY run_id, position",
     ),
+    rows("SELECT * FROM products ORDER BY updated_at DESC"),
   ]);
   const users = userRows.map((r) => ({
     id: String(r.id),
@@ -1658,6 +1701,21 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
       createdAt: String(r.created_at),
       updatedAt: String(r.updated_at),
     })),
+    products: products.map((r) => ({
+      id: String(r.id),
+      name: String(r.name),
+      description: String(r.description),
+      price: String(r.price),
+      currency: String(r.currency),
+      productUrl: String(r.product_url),
+      mediaId: r.media_id ? String(r.media_id) : undefined,
+      status: String(r.status) as "ACTIVE" | "DRAFT" | "ARCHIVED",
+      createdAt: String(r.created_at),
+      updatedAt: String(r.updated_at),
+    })),
+    chatGptAdsConfigured: Boolean(
+      (env as unknown as { OPENAI_ADS_API_KEY?: string }).OPENAI_ADS_API_KEY?.trim(),
+    ),
   };
 }
 

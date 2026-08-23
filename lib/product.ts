@@ -2,9 +2,9 @@ import type { CampaignTemplate } from "@/lib/campaign-templates";
 
 export const product = {
   name: "GrowthOS",
-  tagline: "Marketing, orchestrated.",
+  tagline: "Campaigns, ready to launch.",
   description:
-    "The AI marketing control plane for planning, creating, approving, activating, and learning across every channel.",
+    "Turn a product and an occasion into a complete, ready-to-review ecommerce campaign.",
   workspace: "Northstar Analytics",
   accent: "#0f766e",
   aiAccent: "#7357d8",
@@ -63,6 +63,7 @@ export const channelWorkspaces: Record<ChannelKey, ChannelWorkspaceConfig> = {
     matches: [
       "meta ads",
       "google ads",
+      "chatgpt ads",
       "linkedin ads",
       "tiktok ads",
       "paid ad",
@@ -183,30 +184,24 @@ export function templateMatchesSearch(
 export const primaryNavigation = [
   ["Home", "/app", "home"],
   ["Campaigns", "/app/campaigns", "campaign"],
-] as const;
-
-export const channelNavigation = channelKeys.map((key) => {
-  const item = channelWorkspaces[key];
-  return [item.label, item.route, item.icon] as const;
-});
-
-export const operationsNavigation = [
-  ["Calendar", "/app/calendar", "calendar"],
+  ["Products & Brand", "/app/products", "product"],
   ["Approvals", "/app/approvals", "approval"],
-  ["Insights", "/app/insights", "insights"],
+  ["Calendar", "/app/calendar", "calendar"],
+  ["Results", "/app/results", "insights"],
 ] as const;
 
-export const manageNavigation = [
-  ["Brand & Assets", "/app/brand-kit", "brand"],
-  ["Audiences", "/app/audiences", "audience"],
-  ["Connections & Syncs", "/app/integrations", "integration"],
-  ["Team", "/app/team", "team"],
-  ["Audit", "/app/audit-log", "audit"],
-  ["Settings", "/app/settings", "settings"],
-] as const;
+export const channelNavigation: Array<readonly [string, string, string]> = [];
+
+export const operationsNavigation: Array<
+  readonly [string, string, string]
+> = [];
+
+export const manageNavigation: Array<readonly [string, string, string]> = [];
 
 export const legacyRouteAliases = {
   "/app/paid-ads": "/app/channels/paid",
+  "/app/brand-kit": "/app/products",
+  "/app/insights": "/app/results",
 } as const;
 
 export function resolveLegacyRoute(path: string) {

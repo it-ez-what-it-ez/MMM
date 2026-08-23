@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { env } from "cloudflare:workers";
 import { database, initializeDatabase, loadAppState } from "@/db/runtime";
 import { instantiateCampaignTemplate } from "@/lib/campaign-templates";
 import type { CampaignTemplate } from "@/lib/campaign-templates";
@@ -9,6 +10,14 @@ import type {
 } from "@/lib/types";
 import { getMarketingAgent } from "@/server/marketing-agent";
 import { getAIProvider, MockIntegrationAdapter } from "@/server/providers";
+import { createPausedChatGPTAdCampaign } from "@/server/chatgpt-ads";
+
+type MediaBucket = {
+  get(key: string): Promise<{
+    body: ReadableStream;
+    httpMetadata?: { contentType?: string };
+  } | null>;
+};
 
 const actionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -30,6 +39,7 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("useCampaignTemplate"),
     templateId: z.string().min(3),
+    productId: z.string().min(3).optional(),
     name: z.string().min(3),
     startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     variables: z.record(z.string(), z.string()),
@@ -68,6 +78,13 @@ const actionSchema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("retrySync"), syncId: z.string() }),
   z.object({
+    type: z.literal("createChatGPTAdCampaign"),
+    campaignId: z.string().min(3),
+    contentId: z.string().min(3),
+    budget: z.number().positive().max(1_000_000),
+    confirmed: z.literal(true),
+  }),
+  z.object({
     type: z.literal("createPaidAd"),
     name: z.string().min(3),
     platform: z.enum(["Meta Ads", "Google Ads"]),
@@ -103,6 +120,31 @@ const actionSchema = z.discriminatedUnion("type", [
       .min(1),
   }),
   z.object({
+    type: z.literal("createProduct"),
+    name: z.string().trim().min(2).max(120),
+    description: z.string().trim().min(12).max(800),
+    price: z.string().trim().min(1).max(80),
+    productUrl: z.string().url(),
+    mediaId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("updateProduct"),
+    productId: z.string().min(3),
+    name: z.string().trim().min(2).max(120),
+    description: z.string().trim().min(12).max(800),
+    price: z.string().trim().min(1).max(80),
+    productUrl: z.string().url(),
+    mediaId: z.string().optional(),
+  }),
+  z.object({
+    type: z.literal("updateBrandProfile"),
+    name: z.string().trim().min(2).max(120),
+    website: z.string().url(),
+    description: z.string().trim().min(20).max(1200),
+    valueProposition: z.string().trim().min(12).max(600),
+    audiences: z.array(z.string().trim().min(2)).min(1).max(12),
+  }),
+  z.object({
     type: z.literal("startAgentRun"),
     objective: z.string().trim().min(12).max(500),
     mode: z.enum(["LIFECYCLE", "PERFORMANCE", "CROSS_CHANNEL"]),
@@ -133,12 +175,16 @@ const permissions: Record<Role, Set<string>> = {
     "publishContent",
     "retrySync",
     "createPaidAd",
+    "createChatGPTAdCampaign",
     "activatePaidAd",
     "createFollowup",
     "updateSettings",
     "createAudience",
     "startAgentRun",
     "executeAgentRun",
+    "createProduct",
+    "updateProduct",
+    "updateBrandProfile",
   ]),
   ADMIN: new Set([
     "connectIntegration",
@@ -154,12 +200,16 @@ const permissions: Record<Role, Set<string>> = {
     "publishContent",
     "retrySync",
     "createPaidAd",
+    "createChatGPTAdCampaign",
     "activatePaidAd",
     "createFollowup",
     "updateSettings",
     "createAudience",
     "startAgentRun",
     "executeAgentRun",
+    "createProduct",
+    "updateProduct",
+    "updateBrandProfile",
   ]),
   MARKETER: new Set([
     "saveBrandVoice",
@@ -172,10 +222,14 @@ const permissions: Record<Role, Set<string>> = {
     "publishContent",
     "retrySync",
     "createPaidAd",
+    "createChatGPTAdCampaign",
     "createFollowup",
     "createAudience",
     "startAgentRun",
     "executeAgentRun",
+    "createProduct",
+    "updateProduct",
+    "updateBrandProfile",
   ]),
   REVIEWER: new Set(["decideApproval", "bulkApprove"]),
   VIEWER: new Set(),
@@ -211,6 +265,7 @@ function prepareTemplateCampaign(input: {
   ownerId: string;
   reason: string;
   campaignId?: string;
+  productId?: string;
 }) {
   const campaignId = input.campaignId ?? id("camp");
   const createdAt = now();
@@ -234,7 +289,7 @@ function prepareTemplateCampaign(input: {
         instance.startDate,
         instance.endDate,
         JSON.stringify(instance.channels),
-        JSON.stringify(instance.plan),
+        JSON.stringify({ ...instance.plan, productId: input.productId }),
         input.ownerId,
         createdAt,
       ),
@@ -371,11 +426,87 @@ export async function performAction(
     );
     return { ok: true, data: voice, auditEventId: auditId };
   }
+  if (action.type === "updateBrandProfile") {
+    await database()
+      .prepare(
+        "UPDATE brand_profiles SET name = ?, website = ?, description = ?, value_proposition = ?, audiences_json = ?, updated_at = ? WHERE id = 'brand-northstar'",
+      )
+      .bind(
+        action.name,
+        action.website,
+        action.description,
+        action.valueProposition,
+        JSON.stringify(action.audiences),
+        now(),
+      )
+      .run();
+    const auditId = await audit(
+      userId,
+      "BRAND_PROFILE_CHANGED",
+      "BrandProfile",
+      "brand-northstar",
+      "Updated brand foundation for campaign generation",
+    );
+    return { ok: true, data: action, auditEventId: auditId };
+  }
+  if (action.type === "createProduct" || action.type === "updateProduct") {
+    const productId =
+      action.type === "createProduct" ? id("product") : action.productId;
+    if (action.type === "updateProduct") {
+      const existing = state.products.find((item) => item.id === productId);
+      if (!existing) return { ok: false, error: "Product not found." };
+      await database()
+        .prepare(
+          "UPDATE products SET name = ?, description = ?, price = ?, product_url = ?, media_id = ?, status = 'ACTIVE', updated_at = ? WHERE id = ? AND workspace_id = 'ws-northstar'",
+        )
+        .bind(
+          action.name,
+          action.description,
+          action.price,
+          action.productUrl,
+          action.mediaId || null,
+          now(),
+          productId,
+        )
+        .run();
+    } else {
+      const timestamp = now();
+      await database()
+        .prepare(
+          "INSERT INTO products (id, workspace_id, name, description, price, currency, product_url, media_id, status, created_at, updated_at) VALUES (?, 'ws-northstar', ?, ?, ?, ?, ?, ?, 'ACTIVE', ?, ?)",
+        )
+        .bind(
+          productId,
+          action.name,
+          action.description,
+          action.price,
+          state.workspace.currency,
+          action.productUrl,
+          action.mediaId || null,
+          timestamp,
+          timestamp,
+        )
+        .run();
+    }
+    const auditId = await audit(
+      userId,
+      action.type === "createProduct" ? "PRODUCT_CREATED" : "PRODUCT_UPDATED",
+      "Product",
+      productId,
+      `${action.name} is available for campaign creation`,
+    );
+    return { ok: true, data: { productId }, auditEventId: auditId };
+  }
   if (action.type === "useCampaignTemplate") {
     const template = state.templates.find(
       (item) => item.id === action.templateId,
     );
     if (!template) return { ok: false, error: "Campaign template not found." };
+    if (
+      action.productId &&
+      !state.products.some((product) => product.id === action.productId)
+    )
+      return { ok: false, error: "Selected product not found." };
 
     const missing = template.variables.filter(
       (item) =>
@@ -400,6 +531,7 @@ export async function performAction(
       variables: action.variables,
       ownerId: userId,
       reason: `Template: ${template.name}`,
+      productId: action.productId,
     });
     await database().batch(prepared.statements);
     const auditId = await audit(
@@ -839,6 +971,12 @@ export async function performAction(
         ok: false,
         error: "Content requires approval before publishing.",
       };
+    if (item.channel === "ChatGPT Ads")
+      return {
+        ok: false,
+        error:
+          "ChatGPT Ads uses a separate paused-campaign flow so budget and review status can be confirmed.",
+      };
     const key = `publish:${action.contentId}:v${item.version}`;
     const completed = await find(
       "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
@@ -882,6 +1020,134 @@ export async function performAction(
       data: { externalId: result.externalId, idempotent: false },
       auditEventId: auditId,
     };
+  }
+  if (action.type === "createChatGPTAdCampaign") {
+    const campaign = state.campaigns.find(
+      (item) => item.id === action.campaignId,
+    );
+    const item = state.content.find(
+      (content) => content.id === action.contentId,
+    );
+    if (!campaign || !item || item.campaignId !== campaign.id)
+      return { ok: false, error: "ChatGPT ad creative was not found." };
+    if (item.channel !== "ChatGPT Ads")
+      return { ok: false, error: "Choose a ChatGPT Ads creative item." };
+    if (!["APPROVED", "SCHEDULED"].includes(item.state))
+      return {
+        ok: false,
+        error: "Approve this ChatGPT ad before creating the provider campaign.",
+      };
+    const product = state.products.find(
+      (candidate) => candidate.id === campaign.plan.productId,
+    );
+    if (!product?.mediaId)
+      return {
+        ok: false,
+        error: "Add an uploaded product image before creating a ChatGPT ad.",
+      };
+    const media = await find(
+      "SELECT name, object_key FROM media_assets WHERE id = ? AND workspace_id = 'ws-northstar'",
+      product.mediaId,
+    );
+    if (!media?.object_key)
+      return {
+        ok: false,
+        error: "Upload a real product image before creating a ChatGPT ad.",
+      };
+    const bucket = (env as unknown as { MEDIA?: MediaBucket }).MEDIA;
+    const stored = await bucket?.get(String(media.object_key));
+    if (!stored)
+      return { ok: false, error: "The product image could not be loaded." };
+
+    const key = `chatgpt-ads:${campaign.id}:${item.id}:v${item.version}`;
+    const completed = await find(
+      "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
+      key,
+    );
+    if (completed)
+      return {
+        ok: true,
+        data: {
+          adId: String(completed.external_id),
+          status: "paused",
+          idempotent: true,
+        },
+      };
+
+    try {
+      const result = await createPausedChatGPTAdCampaign({
+        campaignName: campaign.title,
+        budget: action.budget,
+        creative: {
+          title: item.title,
+          body: item.body,
+          targetUrl: product.productUrl,
+        },
+        image: {
+          bytes: await new Response(stored.body).arrayBuffer(),
+          name: String(media.name ?? "product.jpg"),
+          contentType: stored.httpMetadata?.contentType ?? "image/jpeg",
+        },
+      });
+      await database().batch([
+        database()
+          .prepare(
+            "INSERT INTO operation_ledger (idempotency_key, operation, external_id, status, created_at) VALUES (?, 'create_chatgpt_ad_campaign', ?, 'COMPLETED', ?)",
+          )
+          .bind(key, result.adId, now()),
+        database()
+          .prepare(
+            "UPDATE content_items SET external_id = ?, updated_at = ? WHERE id = ?",
+          )
+          .bind(result.adId, now(), item.id),
+        database()
+          .prepare(
+            "INSERT INTO paid_ad_campaigns (id, workspace_id, name, platform, objective, state, budget, spend, results, date_range, creative_json, external_id) VALUES (?, 'ws-northstar', ?, 'ChatGPT Ads', ?, 'PAUSED', ?, 0, 0, ?, ?, ?)",
+          )
+          .bind(
+            id("ad"),
+            campaign.title,
+            campaign.objective,
+            Math.round(action.budget),
+            `${campaign.startDate} – ${campaign.endDate}`,
+            JSON.stringify([
+              { headline: item.title, body: item.body, cta: "Learn more" },
+            ]),
+            result.adId,
+          ),
+      ]);
+      const existingConnection = state.connections.find(
+        (connection) => connection.definitionId === "int-chatgpt-ads",
+      );
+      if (!existingConnection) {
+        await database()
+          .prepare(
+            "INSERT INTO connections (id, workspace_id, definition_id, account_name, state, capabilities_json, last_activity, last_error, success_rate) VALUES (?, 'ws-northstar', 'int-chatgpt-ads', 'OpenAI Ads account', 'CONNECTED', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', ?, NULL, 100)",
+          )
+          .bind(id("conn"), now())
+          .run();
+      }
+      const auditId = await audit(
+        userId,
+        "CHATGPT_AD_CAMPAIGN_CREATED",
+        "PaidAdCampaign",
+        result.adId,
+        `Created paused ChatGPT Ads campaign ${result.campaignId}; review status ${result.reviewStatus}`,
+      );
+      return {
+        ok: true,
+        data: { ...result, idempotent: false },
+        auditEventId: auditId,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "ChatGPT Ads campaign creation failed.",
+      };
+    }
   }
   if (action.type === "retrySync") {
     const sync = state.syncs.find((item) => item.id === action.syncId);

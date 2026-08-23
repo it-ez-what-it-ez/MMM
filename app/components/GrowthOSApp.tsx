@@ -109,6 +109,7 @@ const iconMap: Record<string, ReactNode> = {
   messaging: <MessageSquareText />,
   web: <Globe2 />,
   agent: <Sparkles />,
+  product: <Library />,
 };
 
 const roleLabels: Record<Role, string> = {
@@ -363,6 +364,7 @@ type PreviewAsset = {
 
 function previewKind(asset: Pick<PreviewAsset, "channel" | "type">) {
   const value = `${asset.channel} ${asset.type}`.toLowerCase();
+  if (value.includes("chatgpt")) return "chatgpt";
   if (value.includes("email")) return "email";
   if (value.includes("sms") || value.includes("whatsapp")) return "sms";
   if (value.includes("tiktok")) return "tiktok";
@@ -397,6 +399,7 @@ function previewKindLabel(asset: Pick<PreviewAsset, "channel" | "type">) {
     facebook: "Facebook post",
     instagram: "Instagram post",
     ad: "Paid ad",
+    chatgpt: "Chat card ad",
     web: "Web page",
     professional: "Social post",
   };
@@ -661,6 +664,32 @@ function AssetPreview({
         </div>
       )}
 
+      {kind === "chatgpt" && (
+        <div className="chatgpt-ad-shell">
+          <div className="chatgpt-conversation-line">
+            <span>●</span>
+            <p>What product could help me solve this?</p>
+          </div>
+          <div className="chatgpt-answer-line">
+            <span>✦</span>
+            <p>Here is one option related to your conversation.</p>
+          </div>
+          <div className="chatgpt-sponsored-card">
+            <ProductVisual media={media} />
+            <div>
+              <small>Sponsored · {brandName}</small>
+              <strong>{copy(asset.title)}</strong>
+              <p>{copy(asset.body)}</p>
+              <span>{variables?.productPrice}</span>
+              <button>{variables?.primaryCta || "Learn more"}</button>
+            </div>
+          </div>
+          <small className="chatgpt-ad-disclosure">
+            Ads are separate from the conversation response.
+          </small>
+        </div>
+      )}
+
       {kind === "web" && (
         <div className="web-preview-shell">
           <div className="web-browser-bar">
@@ -762,8 +791,6 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
   const [path, setPath] = useState(initialPath);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNav, setMobileNav] = useState(false);
-  const [manageOpen, setManageOpen] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
   const [loading, setLoading] = useState(true);
@@ -798,8 +825,8 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "/") {
         event.preventDefault();
-        window.history.pushState({}, "", "/app/agent");
-        setPath("/app/agent");
+        window.history.pushState({}, "", "/app/campaigns/new");
+        setPath("/app/campaigns/new");
       }
     };
     document.addEventListener("keydown", shortcuts);
@@ -837,16 +864,6 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
     } else setToast({ tone: "error", message: result.error });
     return result;
   };
-  const switchIdentity = async (userId: string) => {
-    await fetch("/api/identity", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
-    });
-    setToast({ tone: "success", message: "Demo identity switched" });
-    await load();
-  };
-
   if (loading || !state)
     return (
       <div className="product-loader">
@@ -863,19 +880,11 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
       </div>
     );
 
-  const connectionIssueCount = state.connections.filter((item) =>
-    ["DEGRADED", "FAILED", "ERROR"].includes(item.state),
-  ).length;
-  const syncIssueCount = state.syncs.filter((item) =>
-    ["DEGRADED", "FAILED", "ERROR"].includes(item.state),
-  ).length;
-  const operationalIssueCount = connectionIssueCount + syncIssueCount;
-
   const renderView = () => {
     const routedPath = resolveLegacyRoute(path);
     if (routedPath === "/app")
       return (
-        <Dashboard state={state} navigate={navigate} runAction={runAction} />
+        <V1Home state={state} navigate={navigate} />
       );
     if (routedPath === "/app/agent")
       return (
@@ -910,26 +919,30 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           navigate={navigate}
         />
       );
-    if (routedPath === "/app/brand-kit")
-      return <BrandKit state={state} runAction={runAction} />;
-    if (routedPath.startsWith("/app/campaigns/new")) {
-      const maybeChannel = routedPath.split("/")[4] as ChannelKey | undefined;
+    if (routedPath === "/app/products")
       return (
-        <CampaignCreator
+        <ProductsBrandView
           state={state}
           navigate={navigate}
           runAction={runAction}
-          initialChannel={
-            maybeChannel && channelKeys.includes(maybeChannel)
-              ? maybeChannel
-              : undefined
+        />
+      );
+    if (routedPath.startsWith("/app/campaigns/new")) {
+      return (
+        <V1CampaignCreator
+          state={state}
+          navigate={navigate}
+          runAction={runAction}
+          initialProductId={
+            new URLSearchParams(window.location.search).get("product") ??
+            undefined
           }
         />
       );
     }
     if (routedPath === "/app/campaigns/templates")
       return (
-        <CampaignCreator
+        <V1CampaignCreator
           state={state}
           navigate={navigate}
           runAction={runAction}
@@ -957,10 +970,8 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
       return <AudiencesView state={state} runAction={runAction} />;
     if (routedPath === "/app/syncs")
       return <SyncsView state={state} runAction={runAction} />;
-    if (routedPath === "/app/insights")
-      return (
-        <InsightsView state={state} navigate={navigate} runAction={runAction} />
-      );
+    if (routedPath === "/app/results")
+      return <V1ResultsView state={state} navigate={navigate} />;
     if (routedPath === "/app/team") return <TeamView state={state} />;
     if (routedPath === "/app/audit-log") return <AuditView state={state} />;
     if (routedPath === "/app/settings")
@@ -1003,7 +1014,7 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
             <>
               <span>
                 <strong>{state.workspace.name}</strong>
-                <small>Demo workspace</small>
+                <small>Private workspace</small>
               </span>
               <ChevronDown />
             </>
@@ -1014,14 +1025,11 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           onClick={() => navigate("/app/campaigns/new")}
         >
           <Plus />
-          {sidebarOpen && "Create"}
+          {sidebarOpen && "New campaign"}
         </button>
         <nav aria-label="Main navigation">
-          {[
-            { group: "", items: primaryNavigation },
-            { group: "Channels", items: channelNavigation },
-            { group: "", items: operationsNavigation },
-          ].map((section, sectionIndex) => (
+          {[{ group: "", items: primaryNavigation }].map(
+            (section, sectionIndex) => (
             <div
               className="nav-section"
               key={`${section.group}-${sectionIndex}`}
@@ -1032,7 +1040,7 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
               {section.items.map(([label, href, icon]) => (
                 <button
                   key={label}
-                  className={`nav-item ${path === href || (href !== "/app" && path.startsWith(`${href}/`)) || (href === "/app/channels/paid" && path === "/app/paid-ads") ? "active" : ""}`}
+                  className={`nav-item ${path === href || (href !== "/app" && path.startsWith(`${href}/`)) ? "active" : ""}`}
                   title={!sidebarOpen ? label : undefined}
                   onClick={() => navigate(href)}
                 >
@@ -1052,52 +1060,20 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
                 </button>
               ))}
             </div>
-          ))}
-          <div className="nav-section manage-nav">
-            <button
-              className={`nav-item manage-trigger ${manageOpen ? "open" : ""}`}
-              onClick={() => setManageOpen((value) => !value)}
-              aria-expanded={manageOpen}
-            >
-              <Settings />
-              {sidebarOpen && <span>Manage</span>}
-              {sidebarOpen && (manageOpen ? <ChevronDown /> : <ChevronRight />)}
-            </button>
-            {manageOpen && (
-              <div className="manage-items">
-                {manageNavigation.map(([label, href, icon]) => (
-                  <button
-                    key={label}
-                    className={`nav-item ${path === href || path.startsWith(`${href}/`) ? "active" : ""}`}
-                    title={!sidebarOpen ? label : undefined}
-                    onClick={() => navigate(href)}
-                  >
-                    {iconMap[icon]}
-                    {sidebarOpen && <span>{label}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+            ),
+          )}
         </nav>
         <div className="sidebar-footer">
           <button
-            className={`health-strip ${operationalIssueCount ? "needs-attention" : ""}`}
-            onClick={() =>
-              navigate(connectionIssueCount ? "/app/integrations" : "/app/syncs")
-            }
-            aria-label={
-              operationalIssueCount
-                ? `${operationalIssueCount} marketing operation${operationalIssueCount === 1 ? "" : "s"} need attention`
-                : "All marketing operations are healthy"
-            }
+            className="health-strip"
+            onClick={() => navigate("/app/products")}
+            aria-label="Open products and brand"
           >
             <span className="pulse-dot" />
             {sidebarOpen && (
               <span>
-                {operationalIssueCount
-                  ? `${operationalIssueCount} item${operationalIssueCount === 1 ? "" : "s"} need attention`
-                  : "All systems operational"}
+                {state.products.length} product
+                {state.products.length === 1 ? "" : "s"} · Brand ready
               </span>
             )}
           </button>
@@ -1128,30 +1104,15 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
             <kbd>⌘ K</kbd>
           </button>
           <div className="topbar-actions">
-            <button
-              className="button ask-growthos"
-              onClick={() => navigate("/app/agent")}
-            >
-              <Sparkles /> Ask GrowthOS
-            </button>
-            <div className="identity-menu">
-              <select
-                aria-label="Demo identity"
-                value={state.currentUser.id}
-                onChange={(event) => void switchIdentity(event.target.value)}
-              >
-                {state.users.map((user) => (
-                  <option value={user.id} key={user.id}>
-                    {user.name} — {roleLabels[user.role]}
-                  </option>
-                ))}
-              </select>
+            <span className="private-beta-label">
+              <ShieldCheck /> Private beta
+            </span>
+            <div className="identity-menu v1-identity">
               <span className="avatar">{state.currentUser.initials}</span>
               <span className="identity-copy">
                 <strong>{state.currentUser.name}</strong>
-                <small>{roleLabels[state.currentUser.role]}</small>
+                <small>{state.workspace.name}</small>
               </span>
-              <ChevronDown />
             </div>
           </div>
         </header>
@@ -1161,7 +1122,7 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
         {[
           ["Home", "/app", <Home key="home" />],
           ["Campaigns", "/app/campaigns", <Megaphone key="campaigns" />],
-          ["Social", "/app/channels/social", <Send key="social" />],
+          ["Products", "/app/products", <Library key="products" />],
           ["Approvals", "/app/approvals", <ShieldCheck key="approvals" />],
         ].map(([label, href, icon]) => (
           <button
@@ -1178,12 +1139,6 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           <span>More</span>
         </button>
       </nav>
-      <Assistant
-        open={assistantOpen}
-        onClose={() => setAssistantOpen(false)}
-        state={state}
-        navigate={navigate}
-      />
       <CommandPalette
         open={commandOpen}
         onClose={() => setCommandOpen(false)}
@@ -1195,6 +1150,1109 @@ export function GrowthOSApp({ initialPath }: { initialPath: string }) {
           {toast.message}
         </div>
       )}
+    </div>
+  );
+}
+
+function V1Home({
+  state,
+  navigate,
+}: {
+  state: AppState;
+  navigate: (path: string) => void;
+}) {
+  const pending = state.approvals.filter((item) => item.state === "PENDING");
+  const drafts = state.campaigns.filter((item) =>
+    ["DRAFT", "READY_FOR_REVIEW", "AWAITING_APPROVAL"].includes(item.state),
+  );
+  const scheduled = state.content
+    .filter((item) => item.scheduledAt && item.state !== "REJECTED")
+    .sort(
+      (left, right) =>
+        new Date(left.scheduledAt!).getTime() -
+        new Date(right.scheduledAt!).getTime(),
+    );
+  const next =
+    state.products.length === 0
+      ? {
+          label: "Add your first product",
+          detail:
+            "GrowthOS needs a product, its positioning, and an image before it can create useful campaigns.",
+          action: "Add product",
+          route: "/app/products",
+        }
+      : pending.length > 0
+        ? {
+            label: `Review ${pending.length} campaign asset${pending.length === 1 ? "" : "s"}`,
+            detail:
+              "These assets are waiting for a clear decision before the campaign can move forward.",
+            action: "Open approvals",
+            route: "/app/approvals",
+          }
+        : drafts.length > 0
+          ? {
+              label: `Continue ${drafts[0].title}`,
+              detail:
+                "Review the creative, make any final edits, and send the campaign for approval.",
+              action: "Continue campaign",
+              route: `/app/campaigns/${drafts[0].id}/content`,
+            }
+          : {
+              label: "Create your next product campaign",
+              detail:
+                "Choose a product and GrowthOS will assemble the social, email, SMS, and paid creative.",
+              action: "Create campaign",
+              route: "/app/campaigns/new",
+            };
+  const firstName = state.currentUser.name.split(" ")[0];
+
+  return (
+    <div className="page v1-home">
+      <PageHeader
+        title={`Good morning, ${firstName}`}
+        description="One clear view of what needs your attention today."
+        actions={
+          <button
+            className="button primary"
+            onClick={() => navigate("/app/campaigns/new")}
+          >
+            <Plus /> New campaign
+          </button>
+        }
+      />
+      <section className="card v1-next-action">
+        <span className="v1-next-icon">
+          <Sparkles />
+        </span>
+        <div>
+          <span>Recommended next step</span>
+          <h2>{next.label}</h2>
+          <p>{next.detail}</p>
+        </div>
+        <button className="button primary" onClick={() => navigate(next.route)}>
+          {next.action} <ArrowRight />
+        </button>
+      </section>
+      <section className="v1-snapshot" aria-label="Workspace snapshot">
+        {[
+          ["Products", state.products.length, "Ready for campaigns"],
+          ["Campaigns", state.campaigns.length, `${drafts.length} in progress`],
+          ["Approvals", pending.length, "Waiting for a decision"],
+          ["Scheduled", scheduled.length, "Upcoming assets"],
+        ].map(([label, value, detail]) => (
+          <button
+            key={String(label)}
+            onClick={() =>
+              navigate(
+                label === "Products"
+                  ? "/app/products"
+                  : label === "Campaigns"
+                    ? "/app/campaigns"
+                    : label === "Approvals"
+                      ? "/app/approvals"
+                      : "/app/calendar",
+              )
+            }
+          >
+            <span>{label}</span>
+            <strong>{value}</strong>
+            <small>{detail}</small>
+          </button>
+        ))}
+      </section>
+      <div className="v1-home-columns">
+        <section className="card v1-work-list">
+          <div className="section-heading">
+            <div>
+              <h2>Campaigns in progress</h2>
+              <p>Pick up exactly where you left off.</p>
+            </div>
+            <button className="text-button" onClick={() => navigate("/app/campaigns")}>
+              View all
+            </button>
+          </div>
+          {drafts.slice(0, 4).map((campaign) => {
+            const product = state.products.find(
+              (item) => item.id === campaign.plan.productId,
+            );
+            return (
+              <button
+                key={campaign.id}
+                onClick={() =>
+                  navigate(`/app/campaigns/${campaign.id}/overview`)
+                }
+              >
+                <span className="v1-list-product">
+                  <ProductVisual
+                    media={state.media.find((item) => item.id === product?.mediaId)}
+                  />
+                </span>
+                <span>
+                  <strong>{campaign.title}</strong>
+                  <small>{product?.name ?? campaign.channels.join(" · ")}</small>
+                </span>
+                <Badge value={campaign.state} />
+                <ChevronRight />
+              </button>
+            );
+          })}
+          {!drafts.length && (
+            <Empty
+              icon={<Megaphone />}
+              title="No campaigns in progress"
+              text="Your next product campaign can start in a few minutes."
+              action={
+                <button
+                  className="button primary"
+                  onClick={() => navigate("/app/campaigns/new")}
+                >
+                  Create campaign
+                </button>
+              }
+            />
+          )}
+        </section>
+        <section className="card v1-upcoming-list">
+          <div className="section-heading">
+            <div>
+              <h2>Coming up</h2>
+              <p>Your next scheduled campaign assets.</p>
+            </div>
+          </div>
+          {scheduled.slice(0, 5).map((item) => (
+            <button
+              key={item.id}
+              onClick={() =>
+                navigate(`/app/campaigns/${item.campaignId}/schedule`)
+              }
+            >
+              <time>
+                <strong>{date(item.scheduledAt, { day: "numeric" })}</strong>
+                <small>{date(item.scheduledAt, { month: "short" })}</small>
+              </time>
+              <span>
+                <strong>{item.title}</strong>
+                <small>{item.channel}</small>
+              </span>
+            </button>
+          ))}
+          {!scheduled.length && (
+            <p className="v1-quiet-empty">Nothing is scheduled yet.</p>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function ProductsBrandView({
+  state,
+  navigate,
+  runAction,
+}: {
+  state: AppState;
+  navigate: (path: string) => void;
+  runAction: <T>(
+    payload: ActionPayload,
+    success: string,
+  ) => Promise<ActionResult<T>>;
+}) {
+  const [tab, setTab] = useState<"products" | "brand" | "assets">("products");
+  const [productModal, setProductModal] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [price, setPrice] = useState("");
+  const [productUrl, setProductUrl] = useState("");
+  const [mediaId, setMediaId] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [brandName, setBrandName] = useState(state.brand.name);
+  const [website, setWebsite] = useState(state.brand.website);
+  const [brandDescription, setBrandDescription] = useState(
+    state.brand.description,
+  );
+  const [valueProposition, setValueProposition] = useState(
+    state.brand.valueProposition,
+  );
+  const [audiences, setAudiences] = useState(state.brand.audiences.join(", "));
+  const [toneValue, setToneValue] = useState(state.brand.voice.tone);
+  const [traits, setTraits] = useState(state.brand.voice.traits.join(", "));
+  const [avoid, setAvoid] = useState(state.brand.voice.avoid.join(", "));
+
+  const openProduct = (product?: AppState["products"][number]) => {
+    setEditingProductId(product?.id ?? null);
+    setName(product?.name ?? "");
+    setDescription(product?.description ?? "");
+    setPrice(product?.price ?? "");
+    setProductUrl(product?.productUrl ?? "");
+    setMediaId(product?.mediaId ?? "");
+    setFile(null);
+    setProductModal(true);
+  };
+  const uploadImage = async (selected: File) => {
+    const form = new FormData();
+    form.append("file", selected);
+    const response = await fetch("/api/media", { method: "POST", body: form });
+    const result = await response.json();
+    if (!response.ok || !result.ok)
+      throw new Error(result.error ?? "Image upload failed.");
+    return String(result.assetId);
+  };
+  const saveProduct = async () => {
+    setSaving(true);
+    try {
+      const uploadedMediaId = file ? await uploadImage(file) : mediaId;
+      const result = await runAction<{ productId: string }>(
+        {
+          type: editingProductId ? "updateProduct" : "createProduct",
+          ...(editingProductId ? { productId: editingProductId } : {}),
+          name,
+          description,
+          price,
+          productUrl,
+          mediaId: uploadedMediaId || undefined,
+        },
+        editingProductId ? "Product updated" : "Product added",
+      );
+      if (result.ok) setProductModal(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+  const saveBrand = async () => {
+    setSaving(true);
+    const foundation = await runAction(
+      {
+        type: "updateBrandProfile",
+        name: brandName,
+        website,
+        description: brandDescription,
+        valueProposition,
+        audiences: audiences
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      },
+      "Brand foundation saved",
+    );
+    if (foundation.ok)
+      await runAction(
+        {
+          type: "saveBrandVoice",
+          tone: toneValue,
+          traits: traits
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+          avoid: avoid
+            .split(",")
+            .map((item) => item.trim())
+            .filter(Boolean),
+        },
+        "Brand and voice saved",
+      );
+    setSaving(false);
+  };
+  const addAsset = async (selected?: File) => {
+    if (!selected) return;
+    setUploading(true);
+    try {
+      await uploadImage(selected);
+      await runAction(
+        {
+          type: "saveBrandVoice",
+          tone: state.brand.voice.tone,
+          traits: state.brand.voice.traits,
+          avoid: state.brand.voice.avoid,
+        },
+        "Asset uploaded",
+      );
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="page v1-products-page">
+      <PageHeader
+        title="Products & Brand"
+        description="The source of truth GrowthOS uses in every campaign."
+        actions={
+          tab === "products" ? (
+            <button className="button primary" onClick={() => openProduct()}>
+              <Plus /> Add product
+            </button>
+          ) : tab === "brand" ? (
+            <button
+              className="button primary"
+              disabled={saving}
+              onClick={() => void saveBrand()}
+            >
+              {saving ? <Loader2 className="spin" /> : <Check />} Save brand
+            </button>
+          ) : (
+            <label className="button primary upload-button">
+              {uploading ? <Loader2 className="spin" /> : <Plus />} Upload asset
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => void addAsset(event.target.files?.[0])}
+              />
+            </label>
+          )
+        }
+      />
+      <div className="simple-tabs v1-products-tabs" role="tablist">
+        {[
+          ["products", "Products"],
+          ["brand", "Brand"],
+          ["assets", "Assets"],
+        ].map(([value, label]) => (
+          <button
+            key={value}
+            role="tab"
+            aria-selected={tab === value}
+            className={tab === value ? "active" : ""}
+            onClick={() => setTab(value as typeof tab)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "products" && (
+        <section className="v1-product-grid">
+          {state.products.map((product) => {
+            const productMedia = state.media.find(
+              (item) => item.id === product.mediaId,
+            );
+            const campaigns = state.campaigns.filter(
+              (campaign) => campaign.plan.productId === product.id,
+            ).length;
+            return (
+              <article className="card v1-product-card" key={product.id}>
+                <ProductVisual media={productMedia} />
+                <div className="v1-product-card-copy">
+                  <span>
+                    <Badge value={product.status} />
+                    <small>{campaigns} campaign{campaigns === 1 ? "" : "s"}</small>
+                  </span>
+                  <h2>{product.name}</h2>
+                  <p>{product.description}</p>
+                  <strong>{product.price}</strong>
+                </div>
+                <footer>
+                  <button className="button ghost" onClick={() => openProduct(product)}>
+                    <Pencil /> Edit
+                  </button>
+                  <button
+                    className="button primary"
+                    onClick={() =>
+                      navigate(`/app/campaigns/new?product=${product.id}`)
+                    }
+                  >
+                    Create campaign <ArrowRight />
+                  </button>
+                </footer>
+              </article>
+            );
+          })}
+          {!state.products.length && (
+            <Empty
+              icon={<Library />}
+              title="Add your first product"
+              text="A name, benefit, price, link, and product image are enough to start."
+              action={
+                <button className="button primary" onClick={() => openProduct()}>
+                  Add product
+                </button>
+              }
+            />
+          )}
+        </section>
+      )}
+      {tab === "brand" && (
+        <section className="card v1-brand-form">
+          <div className="section-heading">
+            <div>
+              <h2>Brand foundation</h2>
+              <p>Campaigns inherit this positioning and voice automatically.</p>
+            </div>
+          </div>
+          <div className="form-grid">
+            <label>
+              Brand name
+              <input value={brandName} onChange={(event) => setBrandName(event.target.value)} />
+            </label>
+            <label>
+              Website
+              <input value={website} onChange={(event) => setWebsite(event.target.value)} />
+            </label>
+            <label className="span-2">
+              What you do
+              <textarea rows={4} value={brandDescription} onChange={(event) => setBrandDescription(event.target.value)} />
+            </label>
+            <label className="span-2">
+              Primary value proposition
+              <textarea rows={3} value={valueProposition} onChange={(event) => setValueProposition(event.target.value)} />
+            </label>
+            <label className="span-2">
+              Target customers
+              <input value={audiences} onChange={(event) => setAudiences(event.target.value)} />
+              <small>Separate customer groups with commas.</small>
+            </label>
+            <label>
+              Voice
+              <select value={toneValue} onChange={(event) => setToneValue(event.target.value)}>
+                <option>Friendly expert</option>
+                <option>Bold challenger</option>
+                <option>Calm premium</option>
+                <option>Playful conversational</option>
+              </select>
+            </label>
+            <label>
+              Voice traits
+              <input value={traits} onChange={(event) => setTraits(event.target.value)} />
+            </label>
+            <label className="span-2">
+              Words and claims to avoid
+              <input value={avoid} onChange={(event) => setAvoid(event.target.value)} />
+            </label>
+          </div>
+        </section>
+      )}
+      {tab === "assets" && (
+        <section className="v1-asset-grid">
+          {state.media.map((asset) => (
+            <article className="card v1-asset-card" key={asset.id}>
+              <ProductVisual media={asset} />
+              <div>
+                <strong>{asset.name}</strong>
+                <small>{asset.tags.join(" · ")}</small>
+              </div>
+              <span className="ai-approved"><Check /> Ready for campaigns</span>
+            </article>
+          ))}
+        </section>
+      )}
+      <Modal
+        open={productModal}
+        onClose={() => setProductModal(false)}
+        title={editingProductId ? "Edit product" : "Add product"}
+        eyebrow="Campaign source"
+      >
+        <form
+          className="modal-body v1-product-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveProduct();
+          }}
+        >
+          <label>
+            Product name
+            <input required value={name} onChange={(event) => setName(event.target.value)} />
+          </label>
+          <label>
+            Short product description
+            <textarea required rows={4} value={description} onChange={(event) => setDescription(event.target.value)} />
+            <small>Focus on the customer outcome, not internal features.</small>
+          </label>
+          <div className="form-grid">
+            <label>
+              Price or offer
+              <input required value={price} onChange={(event) => setPrice(event.target.value)} placeholder="$49 / month" />
+            </label>
+            <label>
+              Product page
+              <input required type="url" value={productUrl} onChange={(event) => setProductUrl(event.target.value)} placeholder="https://…" />
+            </label>
+          </div>
+          <label className="v1-file-field">
+            Product image
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+            />
+            <small>{file?.name ?? (mediaId ? "Current image will be kept" : "PNG, JPEG, or WebP up to 10 MB")}</small>
+          </label>
+          <footer className="modal-footer">
+            <button type="button" className="button ghost" onClick={() => setProductModal(false)}>
+              Cancel
+            </button>
+            <button className="button primary" disabled={saving}>
+              {saving ? <Loader2 className="spin" /> : <Check />}
+              {saving ? "Saving product…" : "Save product"}
+            </button>
+          </footer>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+function V1CampaignCreator({
+  state,
+  navigate,
+  runAction,
+  initialProductId,
+}: {
+  state: AppState;
+  navigate: (path: string) => void;
+  runAction: <T>(
+    payload: ActionPayload,
+    success: string,
+  ) => Promise<ActionResult<T>>;
+  initialProductId?: string;
+}) {
+  type Template = AppState["templates"][number];
+  const initialProduct =
+    state.products.find((item) => item.id === initialProductId) ??
+    state.products[0];
+  const [step, setStep] = useState<1 | 2 | 3>(initialProductId ? 2 : 1);
+  const [productId, setProductId] = useState(initialProduct?.id ?? "");
+  const [template, setTemplate] = useState<Template | null>(null);
+  const [goal, setGoal] = useState("");
+  const [recommendation, setRecommendation] = useState<string | null>(null);
+  const [campaignName, setCampaignName] = useState("");
+  const [startDate, setStartDate] = useState(() => {
+    const value = new Date();
+    value.setDate(value.getDate() + 7);
+    return value.toISOString().slice(0, 10);
+  });
+  const [variables, setVariables] = useState<Record<string, string>>({});
+  const [confirmed, setConfirmed] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const productRecord = state.products.find((item) => item.id === productId);
+  const productMedia = state.media.find(
+    (item) => item.id === productRecord?.mediaId,
+  );
+  const featuredTemplates = [
+    "template-product-content-showcase",
+    "template-product-launch",
+    "template-bfcm",
+    "template-winback",
+    "template-halloween",
+    "template-holiday-guide",
+  ]
+    .map((id) => state.templates.find((item) => item.id === id))
+    .filter(Boolean) as Template[];
+
+  const applyTemplate = (selected: Template, reason?: string) => {
+    if (!productRecord) return;
+    const defaults = Object.fromEntries(
+      selected.variables.map((item) => [item.key, item.defaultValue]),
+    );
+    const nextVariables = {
+      ...defaults,
+      productName: productRecord.name,
+      productBenefit: productRecord.description,
+      productPrice: productRecord.price,
+      productUrl: productRecord.productUrl,
+      offer:
+        defaults.offer ??
+        defaults.offerName ??
+        `${productRecord.price} for ${productRecord.name}`,
+    };
+    setTemplate(selected);
+    setVariables(nextVariables);
+    setCampaignName(
+      selected.category === "Seasonal"
+        ? `${selected.occasion} — ${productRecord.name}`
+        : `${productRecord.name} — ${selected.name}`,
+    );
+    setRecommendation(reason ?? null);
+  };
+  const recommend = () => {
+    const normalized = goal.toLowerCase();
+    const id = normalized.match(/black friday|bfcm|sale|promotion/)
+      ? "template-bfcm"
+      : normalized.match(/halloween/)
+        ? "template-halloween"
+        : normalized.match(/holiday|gift/)
+          ? "template-holiday-guide"
+          : normalized.match(/win.?back|inactive|lapsed|retention/)
+            ? "template-winback"
+            : normalized.match(/launch|new|introduc/)
+              ? "template-product-launch"
+              : "template-product-content-showcase";
+    const match = state.templates.find((item) => item.id === id);
+    if (match)
+      applyTemplate(
+        match,
+        `Recommended from your goal, ${productRecord?.name}, and current Brand settings.`,
+      );
+  };
+  const instance =
+    template && productRecord
+      ? instantiateCampaignTemplate(template, {
+          brandName: state.brand.name,
+          startDate,
+          variables: {
+            ...variables,
+            productAssetId: productRecord.mediaId ?? "",
+            productAssetName: productMedia?.name ?? productRecord.name,
+          },
+        })
+      : undefined;
+  const visibleVariables =
+    template?.variables.filter(
+      (item) =>
+        ![
+          "productName",
+          "productBenefit",
+          "productPrice",
+          "productUrl",
+        ].includes(item.key),
+    ) ?? [];
+  const missing =
+    template?.variables.some(
+      (item) => item.required && !(variables[item.key] ?? "").trim(),
+    ) ?? true;
+  const create = async () => {
+    if (!template || !productRecord) return;
+    setCreating(true);
+    const result = await runAction<{ campaignId: string; assetCount: number }>(
+      {
+        type: "useCampaignTemplate",
+        templateId: template.id,
+        productId: productRecord.id,
+        name: campaignName,
+        startDate,
+        variables: {
+          ...variables,
+          productAssetId: productRecord.mediaId ?? "",
+          productAssetName: productMedia?.name ?? productRecord.name,
+        },
+      },
+      `Campaign created with ${template.assets.length} editable drafts`,
+    );
+    setCreating(false);
+    if (result.ok)
+      navigate(`/app/campaigns/${result.data.campaignId}/content`);
+  };
+
+  if (!state.products.length)
+    return (
+      <div className="page">
+        <PageHeader title="Create a campaign" />
+        <Empty
+          icon={<Library />}
+          title="Add a product first"
+          text="GrowthOS needs product positioning, a destination link, and an image before it can create campaign-ready content."
+          action={
+            <button className="button primary" onClick={() => navigate("/app/products")}>
+              Add product
+            </button>
+          }
+        />
+      </div>
+    );
+
+  return (
+    <div className="page v1-campaign-creator">
+      <button className="back-link" onClick={() => navigate("/app/campaigns")}>
+        <ArrowLeft /> Campaigns
+      </button>
+      <PageHeader
+        title="Create a campaign"
+        description="Choose a product, pick the campaign direction, and approve the actual creative."
+      />
+      <ol className="creator-steps" aria-label="Campaign creation progress">
+        {[
+          ["1", "Product"],
+          ["2", "Campaign"],
+          ["3", "Review"],
+        ].map(([number, label], index) => (
+          <li
+            key={number}
+            className={
+              step === index + 1
+                ? "active"
+                : step > index + 1
+                  ? "complete"
+                  : ""
+            }
+          >
+            <span>{step > index + 1 ? <Check /> : number}</span>
+            {label}
+          </li>
+        ))}
+      </ol>
+
+      {step === 1 && (
+        <section className="v1-create-step">
+          <div className="section-heading">
+            <div>
+              <h2>What are you promoting?</h2>
+              <p>The product supplies the image, value proposition, price, and destination link.</p>
+            </div>
+            <button className="text-button" onClick={() => navigate("/app/products")}>
+              Add another product
+            </button>
+          </div>
+          <div className="v1-product-picker">
+            {state.products.map((product) => (
+              <button
+                className={productId === product.id ? "selected" : ""}
+                key={product.id}
+                onClick={() => setProductId(product.id)}
+              >
+                <ProductVisual
+                  media={state.media.find((item) => item.id === product.mediaId)}
+                />
+                <span>
+                  <strong>{product.name}</strong>
+                  <small>{product.price}</small>
+                </span>
+                {productId === product.id && <CheckCircle2 />}
+              </button>
+            ))}
+          </div>
+          <footer className="focused-creator-footer">
+            <span />
+            <button
+              className="button primary"
+              disabled={!productId}
+              onClick={() => setStep(2)}
+            >
+              Continue <ArrowRight />
+            </button>
+          </footer>
+        </section>
+      )}
+
+      {step === 2 && productRecord && (
+        <section className="v1-create-step">
+          <div className="card v1-campaign-agent">
+            <span className="agent-orb"><Sparkles /></span>
+            <label>
+              <strong>Describe the result you want</strong>
+              <textarea
+                rows={2}
+                value={goal}
+                onChange={(event) => setGoal(event.target.value)}
+                placeholder={`Example: Launch ${productRecord.name} for Black Friday with a 25% offer`}
+              />
+            </label>
+            <button
+              className="button secondary"
+              disabled={goal.trim().length < 8}
+              onClick={recommend}
+            >
+              <Sparkles /> Recommend
+            </button>
+          </div>
+          <div className="section-heading v1-template-heading">
+            <div>
+              <h2>Choose a campaign direction</h2>
+              <p>Each option contains the complete channel bundle shown in review.</p>
+            </div>
+          </div>
+          <div className="v1-template-choice-grid">
+            {featuredTemplates.map((item) => (
+              <button
+                className={template?.id === item.id ? "selected" : ""}
+                key={item.id}
+                onClick={() => applyTemplate(item)}
+              >
+                <span>{item.occasion}</span>
+                <strong>{item.name}</strong>
+                <small>{item.assets.length} assets · {item.durationDays} days</small>
+                <p>{item.description}</p>
+                <i>{item.channels.slice(0, 4).join(" · ")}</i>
+                {template?.id === item.id && <CheckCircle2 />}
+              </button>
+            ))}
+          </div>
+          {template && (
+            <section className="card v1-campaign-essentials">
+              <div className="section-heading">
+                <div>
+                  <h2>Campaign essentials</h2>
+                  <p>{recommendation ?? `${template.name} selected for ${productRecord.name}.`}</p>
+                </div>
+              </div>
+              <div className="v1-applied-product">
+                <ProductVisual media={productMedia} />
+                <span>
+                  <strong>{productRecord.name}</strong>
+                  <small>{productRecord.description}</small>
+                  <i>{productRecord.price} · {productRecord.productUrl}</i>
+                </span>
+                <CheckCircle2 />
+              </div>
+              <div className="form-grid">
+                <label className="span-2">
+                  Campaign name
+                  <input required value={campaignName} onChange={(event) => setCampaignName(event.target.value)} />
+                </label>
+                <label>
+                  Start date
+                  <input required type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+                </label>
+                {visibleVariables.map((item) => (
+                  <label key={item.key}>
+                    {item.label}
+                    <input
+                      required={item.required}
+                      value={variables[item.key] ?? ""}
+                      onChange={(event) =>
+                        setVariables((current) => ({
+                          ...current,
+                          [item.key]: event.target.value,
+                        }))
+                      }
+                    />
+                    <small>{item.help}</small>
+                  </label>
+                ))}
+              </div>
+            </section>
+          )}
+          <footer className="focused-creator-footer">
+            <button className="button ghost" onClick={() => setStep(1)}>
+              <ArrowLeft /> Back
+            </button>
+            <button
+              className="button primary"
+              disabled={!template || !campaignName.trim() || missing}
+              onClick={() => {
+                setConfirmed(false);
+                setStep(3);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }}
+            >
+              Review creative <ArrowRight />
+            </button>
+          </footer>
+        </section>
+      )}
+
+      {step === 3 && template && productRecord && instance && (
+        <section className="v1-create-step v1-final-review">
+          <div className="v1-review-title">
+            <div>
+              <span className="eyebrow">Final review</span>
+              <h2>Would you approve this campaign?</h2>
+              <p>Review the real copy, product placement, channels, and timing before creating anything.</p>
+            </div>
+            <Badge value="DRAFT" />
+          </div>
+          <section className="card v1-review-summary">
+            <div><span>Product</span><strong>{productRecord.name}</strong></div>
+            <div><span>Campaign</span><strong>{campaignName}</strong></div>
+            <div><span>Starts</span><strong>{date(startDate)}</strong></div>
+            <div><span>Assets</span><strong>{instance.assets.length}</strong></div>
+          </section>
+          <div className="visual-review-groups">
+            {channelKeys.map((key) => {
+              const assets = instance.assets.filter(
+                (asset) => classifyChannel(`${asset.channel} ${asset.type}`) === key,
+              );
+              if (!assets.length) return null;
+              return (
+                <section className="visual-channel-review" key={key}>
+                  <header>
+                    <span>{iconMap[channelWorkspaces[key].icon]}</span>
+                    <div>
+                      <h3>{channelWorkspaces[key].label}</h3>
+                      <p>{assets.length} ready-to-edit asset{assets.length === 1 ? "" : "s"}</p>
+                    </div>
+                  </header>
+                  <div className="asset-preview-grid">
+                    {assets.map((asset) => (
+                      <div className="review-asset-wrap" key={`${asset.channel}-${asset.title}`}>
+                        <div className="review-asset-schedule">
+                          <span>{date(asset.scheduledAt)}</span>
+                          <small>{asset.type}</small>
+                        </div>
+                        <AssetPreview
+                          asset={asset}
+                          brandName={state.brand.name}
+                          media={productMedia}
+                          variables={variables}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+          <ReadinessPanel
+            items={[
+              {
+                label: "Product source",
+                detail: `${productRecord.name} supplies approved campaign facts`,
+                state: "ready",
+              },
+              {
+                label: "Brand voice",
+                detail: `${state.brand.voice.tone} guidance is applied`,
+                state: "ready",
+              },
+              {
+                label: "Human approval",
+                detail: "Every asset remains a draft until separately approved",
+                state: "protected",
+              },
+              {
+                label: "ChatGPT Ads",
+                detail: instance.channels.includes("ChatGPT Ads")
+                  ? !productMedia?.tags.includes("uploaded")
+                    ? "Creative is included; upload a real product image before provider creation"
+                    : state.chatGptAdsConfigured
+                      ? "Chat card creative is included and the Ads API is connected"
+                      : "Creative is included; connect an Ads API key before provider creation"
+                  : "Not included in this campaign",
+                state: instance.channels.includes("ChatGPT Ads")
+                  ? state.chatGptAdsConfigured &&
+                    productMedia?.tags.includes("uploaded")
+                    ? "ready"
+                    : "attention"
+                  : "protected",
+              },
+            ]}
+          />
+          <label className="campaign-review-confirmation">
+            <input
+              type="checkbox"
+              aria-label="I reviewed every campaign asset"
+              checked={confirmed}
+              onChange={(event) => setConfirmed(event.target.checked)}
+            />
+            <span>
+              <strong>I reviewed every campaign asset</strong>
+              <small>Create these as editable drafts. Nothing publishes and no ad spend begins.</small>
+            </span>
+          </label>
+          <footer className="focused-creator-footer">
+            <button className="button ghost" onClick={() => setStep(2)}>
+              <ArrowLeft /> Back
+            </button>
+            <button className="button primary" disabled={!confirmed || creating} onClick={() => void create()}>
+              {creating ? <Loader2 className="spin" /> : <Check />}
+              {creating ? "Creating campaign…" : "Create campaign drafts"}
+            </button>
+          </footer>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function V1ResultsView({
+  state,
+  navigate,
+}: {
+  state: AppState;
+  navigate: (path: string) => void;
+}) {
+  const campaignRows = state.campaigns
+    .map((campaign) => {
+      const items = state.content.filter(
+        (content) => content.campaignId === campaign.id,
+      );
+      return {
+        campaign,
+        impressions: items.reduce(
+          (sum, item) => sum + item.metrics.impressions,
+          0,
+        ),
+        clicks: items.reduce((sum, item) => sum + item.metrics.clicks, 0),
+        conversions: items.reduce(
+          (sum, item) => sum + item.metrics.conversions,
+          0,
+        ),
+        published: items.filter((item) => item.state === "PUBLISHED").length,
+      };
+    })
+    .sort((left, right) => right.conversions - left.conversions);
+  const totals = campaignRows.reduce(
+    (sum, row) => ({
+      impressions: sum.impressions + row.impressions,
+      clicks: sum.clicks + row.clicks,
+      conversions: sum.conversions + row.conversions,
+    }),
+    { impressions: 0, clicks: 0, conversions: 0 },
+  );
+  const chatGptAds = state.content.filter((item) =>
+    item.channel.toLowerCase().includes("chatgpt ads"),
+  );
+
+  return (
+    <div className="page v1-results-page">
+      <PageHeader
+        title="Results"
+        description="Campaign performance in one place, without a separate analytics workspace."
+      />
+      <section className="today-metrics v1-results-metrics">
+        <div>
+          <span>Reach</span>
+          <strong>{compact(totals.impressions)}</strong>
+          <small>Measured impressions</small>
+        </div>
+        <div>
+          <span>Clicks</span>
+          <strong>{compact(totals.clicks)}</strong>
+          <small>
+            {totals.impressions
+              ? `${((totals.clicks / totals.impressions) * 100).toFixed(1)}% click rate`
+              : "No measured reach yet"}
+          </small>
+        </div>
+        <div>
+          <span>Conversions</span>
+          <strong>{compact(totals.conversions)}</strong>
+          <small>Across published campaign assets</small>
+        </div>
+      </section>
+      <section className="card v1-results-table">
+        <div className="section-heading">
+          <div>
+            <h2>Campaign performance</h2>
+            <p>Open a campaign to see its channel-level results.</p>
+          </div>
+        </div>
+        {campaignRows.map((row) => (
+          <button
+            key={row.campaign.id}
+            onClick={() =>
+              navigate(`/app/campaigns/${row.campaign.id}/results`)
+            }
+          >
+            <span>
+              <strong>{row.campaign.title}</strong>
+              <small>{row.published} published assets</small>
+            </span>
+            <span><small>Reach</small><strong>{compact(row.impressions)}</strong></span>
+            <span><small>Clicks</small><strong>{compact(row.clicks)}</strong></span>
+            <span><small>Conversions</small><strong>{compact(row.conversions)}</strong></span>
+            <ChevronRight />
+          </button>
+        ))}
+      </section>
+      <section className="card v1-chatgpt-results">
+        <span className="chatgpt-mark">AI</span>
+        <div>
+          <h2>ChatGPT Ads</h2>
+          <p>
+            {chatGptAds.length
+              ? `${chatGptAds.length} ChatGPT chat card creative${chatGptAds.length === 1 ? " is" : "s are"} included across your campaigns.`
+              : "Add ChatGPT chat card creative to your next product campaign."}
+          </p>
+          <small>
+            {state.chatGptAdsConfigured
+              ? "Advertiser API connected · provider campaigns are created paused"
+              : "Creative tools ready · Ads Manager API key still needed"}
+          </small>
+        </div>
+        <button className="button secondary" onClick={() => navigate("/app/campaigns/new")}>
+          Create ChatGPT ad <ArrowRight />
+        </button>
+      </section>
     </div>
   );
 }
@@ -1648,6 +2706,8 @@ function AgentWorkspace({
   );
 }
 
+// Kept for legacy deep-link compatibility while the V1 navigation stays focused.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Dashboard({
   state,
   navigate,
@@ -2970,6 +4030,7 @@ function ConnectionDetail({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BrandKit({
   state,
   runAction,
@@ -3522,6 +4583,7 @@ function Campaigns({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function CampaignCreator({
   state,
   navigate,
@@ -4391,6 +5453,9 @@ function CampaignWorkspace({
   const [editing, setEditing] = useState<ContentItem | null>(null);
   const [body, setBody] = useState("");
   const [publishTarget, setPublishTarget] = useState<ContentItem | null>(null);
+  const [chatGptTarget, setChatGptTarget] = useState<ContentItem | null>(null);
+  const [chatGptBudget, setChatGptBudget] = useState("500");
+  const [chatGptConfirmed, setChatGptConfirmed] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState<ContentItem | null>(
     null,
   );
@@ -4419,8 +5484,12 @@ function CampaignWorkspace({
     (item) => item.campaignId === campaign.id,
   );
   const campaignVariables = campaign.plan.variables ?? {};
+  const campaignProduct = state.products.find(
+    (item) => item.id === campaign.plan.productId,
+  );
   const campaignProductMedia = state.media.find(
-    (item) => item.id === campaignVariables.productAssetId,
+    (item) =>
+      item.id === (campaignProduct?.mediaId ?? campaignVariables.productAssetId),
   );
   const campaignApprovals = state.approvals.filter((approval) =>
     content.some((item) => item.id === approval.contentId),
@@ -4523,6 +5592,11 @@ function CampaignWorkspace({
               </summary>
               <div>
                 <button onClick={() => goToTab("overview")}>Edit plan</button>
+                <a
+                  href={`/api/campaign-export?campaignId=${encodeURIComponent(campaign.id)}`}
+                >
+                  Download campaign CSV
+                </a>
                 <button onClick={() => navigate("/app/audit-log")}>
                   View activity
                 </button>
@@ -4776,9 +5850,28 @@ function CampaignWorkspace({
                         <Send /> Submit
                       </button>
                     )}
-                    {["APPROVED", "SCHEDULED", "PUBLISHED"].includes(
-                      item.state,
-                    ) && (
+                    {item.channel === "ChatGPT Ads" &&
+                      ["APPROVED", "SCHEDULED"].includes(item.state) &&
+                      !item.externalId && (
+                        <button
+                          className="primary-link"
+                          onClick={() => {
+                            setChatGptTarget(item);
+                            setChatGptConfirmed(false);
+                          }}
+                        >
+                          <Rocket /> Create paused ad
+                        </button>
+                      )}
+                    {item.channel === "ChatGPT Ads" && item.externalId && (
+                      <span className="provider-created-label">
+                        <CheckCircle2 /> Provider draft created
+                      </span>
+                    )}
+                    {item.channel !== "ChatGPT Ads" &&
+                      ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(
+                        item.state,
+                      ) && (
                       <button
                         className="primary-link"
                         onClick={() => setPublishTarget(item)}
@@ -4949,6 +6042,98 @@ function CampaignWorkspace({
             }}
           >
             <CalendarDays /> Save schedule
+          </button>
+        </footer>
+      </Modal>
+
+      <Modal
+        open={Boolean(chatGptTarget)}
+        onClose={() => setChatGptTarget(null)}
+        title="Create paused ChatGPT Ads campaign"
+        eyebrow="Real provider action"
+      >
+        <div className="modal-body">
+          <div className="confirm-block chatgpt-confirm-block">
+            <span className="success-orb">
+              <Sparkles />
+            </span>
+            <h3>Send this approved chat card to OpenAI?</h3>
+            <p>
+              GrowthOS will upload the product image and create a campaign, ad
+              group, and ad through the ChatGPT Ads Advertiser API.
+            </p>
+          </div>
+          <label>
+            Lifetime budget ({state.workspace.currency})
+            <input
+              type="number"
+              min="1"
+              max="1000000"
+              value={chatGptBudget}
+              onChange={(event) => setChatGptBudget(event.target.value)}
+            />
+          </label>
+          <div className="alert amber">
+            <ShieldCheck />
+            <span>
+              <strong>Paused by default</strong>
+              <small>
+                This does not spend money. The provider objects remain paused
+                and the ad must complete OpenAI review before serving.
+              </small>
+            </span>
+          </div>
+          {!state.chatGptAdsConfigured && (
+            <div className="alert neutral">
+              <Link2 />
+              <span>
+                <strong>Ads API key required</strong>
+                <small>
+                  Add OPENAI_ADS_API_KEY as a server secret from your OpenAI Ads
+                  Manager account.
+                </small>
+              </span>
+            </div>
+          )}
+          <label className="campaign-review-confirmation">
+            <input
+              type="checkbox"
+              aria-label="I confirm the ChatGPT Ads creative and budget"
+              checked={chatGptConfirmed}
+              onChange={(event) => setChatGptConfirmed(event.target.checked)}
+            />
+            <span>
+              <strong>I confirm the creative and budget</strong>
+              <small>The action and returned provider IDs will be audited.</small>
+            </span>
+          </label>
+        </div>
+        <footer className="modal-footer">
+          <button className="button ghost" onClick={() => setChatGptTarget(null)}>
+            Not now
+          </button>
+          <button
+            className="button primary"
+            disabled={!chatGptConfirmed || Number(chatGptBudget) <= 0}
+            onClick={async () => {
+              if (!chatGptTarget) return;
+              const result = await runAction<{
+                adId: string;
+                reviewStatus: string;
+              }>(
+                {
+                  type: "createChatGPTAdCampaign",
+                  campaignId: campaign.id,
+                  contentId: chatGptTarget.id,
+                  budget: Number(chatGptBudget),
+                  confirmed: true,
+                },
+                "Paused ChatGPT Ads campaign created",
+              );
+              if (result.ok) setChatGptTarget(null);
+            }}
+          >
+            <Rocket /> Create paused campaign
           </button>
         </footer>
       </Modal>
@@ -6826,6 +8011,7 @@ function PaidAdsView({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function InsightsView({
   state,
   navigate,
@@ -7382,6 +8568,7 @@ function SettingsView({
   );
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function Assistant({
   open,
   onClose,

@@ -34,6 +34,7 @@ import {
   classifyChannel,
   classifyTemplateCollection,
   manageNavigation,
+  primaryNavigation,
   resolveLegacyRoute,
   templateMatchesChannel,
   templateMatchesSearch,
@@ -388,16 +389,28 @@ describe("GrowthOS domain rules", () => {
     expect(templateMatchesSearch(product, "sms")).toBe(true);
     expect(templateMatchesSearch(product, "webinar")).toBe(false);
   });
-  it("keeps primary navigation compact and advanced pages under Manage", () => {
-    expect(channelNavigation.map(([label]) => label)).toEqual([
-      "Social",
-      "Email & Messaging",
-      "Paid Ads",
-      "Web & Content",
+  it("keeps the V1 navigation focused on six product workflows", () => {
+    expect(primaryNavigation.map(([label]) => label)).toEqual([
+      "Home",
+      "Campaigns",
+      "Products & Brand",
+      "Approvals",
+      "Calendar",
+      "Results",
     ]);
-    expect(manageNavigation.map(([label]) => label)).toContain(
-      "Connections & Syncs",
+    expect(channelNavigation).toEqual([]);
+    expect(manageNavigation).toEqual([]);
+  });
+  it("includes a reviewable ChatGPT chat card in core product campaigns", () => {
+    const product = seededCampaignTemplates.find(
+      (item) => item.id === "template-product-content-showcase",
+    )!;
+    const chatCard = product.assets.find(
+      (asset) => asset.channel === "ChatGPT Ads",
     );
+    expect(product.channels).toContain("ChatGPT Ads");
+    expect(chatCard?.type).toBe("Chat card ad");
+    expect(chatCard?.title).toContain("{{productName}}");
   });
   it("preserves legacy paid-ad URLs and stable campaign tab routes", () => {
     expect(resolveLegacyRoute("/app/paid-ads")).toBe("/app/channels/paid");
