@@ -317,6 +317,7 @@ export type AppState = {
   agentRuns: MarketingAgentRun[];
   products: ProductRecord[];
   chatGptAdsConfigured: boolean;
+  redditAdsConfigured: boolean;
 };
 
 export type ActionResult<T = unknown> =

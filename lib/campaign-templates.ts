@@ -82,6 +82,7 @@ export const seededCampaignTemplates: CampaignTemplate[] = [
       "SMS",
       "Meta Ads",
       "ChatGPT Ads",
+      "Reddit Ads",
       "LinkedIn",
     ],
     audience:
@@ -192,6 +193,14 @@ export const seededCampaignTemplates: CampaignTemplate[] = [
         "{{productBenefit}}. {{offer}}.",
         6,
         15,
+      ),
+      asset(
+        "Reddit Ads",
+        "Sponsored text post",
+        "What changed when we tried {{productName}}",
+        "We built {{productName}} for teams that need to {{productBenefit}}. {{offer}} — ask us anything about how it works.",
+        7,
+        14,
       ),
       asset(
         "LinkedIn",
@@ -839,6 +848,7 @@ export const seededCampaignTemplates: CampaignTemplate[] = [
       "Meta Ads",
       "Google Ads",
       "ChatGPT Ads",
+      "Reddit Ads",
       "Blog",
     ],
     audience: "Prospects and customers affected by the product problem",
@@ -941,6 +951,14 @@ export const seededCampaignTemplates: CampaignTemplate[] = [
         "Solve {{customerProblem}} and {{proofPoint}} with {{productName}}.",
         8,
         11,
+      ),
+      asset(
+        "Reddit Ads",
+        "Sponsored text post",
+        "We built {{productName}} to solve {{customerProblem}}",
+        "After hearing the same problem from growing teams, we built {{productName}} so they can {{proofPoint}}. Here is what changed and what we learned.",
+        9,
+        14,
       ),
       asset(
         "LinkedIn",

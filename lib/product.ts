@@ -64,6 +64,7 @@ export const channelWorkspaces: Record<ChannelKey, ChannelWorkspaceConfig> = {
       "meta ads",
       "google ads",
       "chatgpt ads",
+      "reddit ads",
       "linkedin ads",
       "tiktok ads",
       "paid ad",

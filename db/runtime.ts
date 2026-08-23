@@ -109,11 +109,14 @@ async function seedCampaignTemplates() {
 }
 
 async function seedChatGPTAdsDefinition() {
-  await db()
-    .prepare(
+  await db().batch([
+    db().prepare(
       "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-chatgpt-ads', 'ChatGPT Ads', 'chatgpt-ads', 'Create paused chat card campaigns and read their delivery status.', 'Advertising', 'DESTINATION', 'API_KEY', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'chatgpt-ads')",
-    )
-    .run();
+    ),
+    db().prepare(
+      "INSERT OR IGNORE INTO integration_definitions (id, name, slug, description, category, direction, auth_type, capabilities_json, status, icon_key) VALUES ('int-reddit-ads', 'Reddit Ads', 'reddit-ads', 'Create paused sponsored-post campaigns and read their delivery status.', 'Advertising', 'DESTINATION', 'OAUTH', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', 'AVAILABLE', 'reddit-ads')",
+    ),
+  ]);
 }
 
 async function seedProducts() {
@@ -1716,6 +1719,18 @@ export async function loadAppState(userId = "user-owner"): Promise<AppState> {
     chatGptAdsConfigured: Boolean(
       (env as unknown as { OPENAI_ADS_API_KEY?: string }).OPENAI_ADS_API_KEY?.trim(),
     ),
+    redditAdsConfigured: (() => {
+      const values = env as unknown as Record<string, string | undefined>;
+      return [
+        "REDDIT_ADS_CLIENT_ID",
+        "REDDIT_ADS_CLIENT_SECRET",
+        "REDDIT_ADS_REFRESH_TOKEN",
+        "REDDIT_AD_ACCOUNT_ID",
+        "REDDIT_ADS_PROFILE_ID",
+        "REDDIT_ADS_FUNDING_INSTRUMENT_ID",
+        "REDDIT_ADS_USER_AGENT",
+      ].every((key) => Boolean(values[key]?.trim()));
+    })(),
   };
 }
 

@@ -7,7 +7,7 @@ GrowthOS turns a real product and brand into a complete ecommerce campaign that 
 1. Add a product with its image, description, price, and destination URL.
 2. Save the brand foundation and voice that every campaign must follow.
 3. Pick an occasion or describe the result you want.
-4. Review the actual Instagram, Facebook, TikTok, email, SMS, paid-ad, and ChatGPT Ads creative.
+4. Review the actual Instagram, Facebook, TikTok, email, SMS, paid-ad, ChatGPT Ads, and Reddit Ads creative.
 5. Create editable drafts, submit individual assets for approval, and schedule approved work.
 6. Export the complete campaign as CSV or use an enabled provider action.
 
@@ -34,6 +34,12 @@ Product campaigns include a real chat-card preview. After the creative is approv
 
 Live creation is disabled until `OPENAI_ADS_API_KEY` is configured as a server secret. Obtain the account-scoped key in [OpenAI Ads Manager](https://ads.openai.com). The integration follows the official [API overview](https://developers.openai.com/ads/api-overview), [quickstart](https://developers.openai.com/ads/api-quickstart), and [ads reference](https://developers.openai.com/ads/api-reference/ads).
 
+## Reddit Ads
+
+Product campaigns also include a native sponsored-post preview. After approval and explicit budget confirmation, GrowthOS can use Reddit Ads API v3 to create a Traffic campaign, ad group, structured text post, and ad. Every object is created paused, and the returned provider IDs, preview URL, and review state are persisted.
+
+Live creation requires a Reddit developer app, an Ads API refresh token with `adsread` and `adsedit`, an ad account, profile, funding instrument, and an honest application User-Agent. All values are server-only settings documented in `.env.example`. See Reddit's [API overview](https://ads-api.reddit.com/docs/v3/), [authentication guide](https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application), and [campaign setup guide](https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup).
+
 ## Local development
 
 Prerequisites: Node.js `>=22.13.0` and npm.
@@ -58,6 +64,6 @@ npm run test:e2e
 npm run build
 ```
 
-Playwright covers product upload persistence, the three-step BFCM journey, visual ChatGPT ad review, provider-key gating, approval enforcement, idempotent publishing, CSV export, responsive navigation, and role restrictions.
+Playwright covers product upload persistence, the three-step BFCM journey, visual ChatGPT and Reddit ad review, provider-credential gating, approval enforcement, idempotent publishing, CSV export, responsive navigation, and role restrictions.
 
 See [ARCHITECTURE.md](./ARCHITECTURE.md) for system boundaries and [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the V1 scope.

@@ -86,7 +86,7 @@ test("creates a BFCM campaign through the three focused decisions", async ({
   await expect(page.getByRole("tab")).toHaveCount(4);
 });
 
-test("shows the actual ChatGPT chat card before campaign creation", async ({
+test("shows actual ChatGPT and Reddit ad previews before campaign creation", async ({
   page,
 }) => {
   await page.goto("/app/campaigns/new?product=product-growth-signals");
@@ -99,10 +99,15 @@ test("shows the actual ChatGPT chat card before campaign creation", async ({
   await expect(preview).toBeVisible();
   await expect(preview.getByText("Sponsored", { exact: false })).toBeVisible();
   await expect(preview.getByRole("button", { name: "See the product" })).toBeVisible();
+  const redditPreview = page.locator(".asset-mockup-reddit");
+  await expect(redditPreview).toBeVisible();
+  await expect(redditPreview.getByText(/Promoted by Northstar Analytics/i)).toBeVisible();
+  await expect(redditPreview.getByRole("button", { name: "See the product" })).toBeVisible();
   await expect(page.getByText(/upload a real product image/i)).toBeVisible();
+  await expect(page.getByText(/connect a Reddit developer app/i)).toBeVisible();
 });
 
-test("keeps ChatGPT provider creation gated by approval and a server API key", async ({
+test("keeps real ad providers gated by approval and server credentials", async ({
   page,
 }) => {
   const upload = await page.request.post("/api/media", {
@@ -124,6 +129,7 @@ test("keeps ChatGPT provider creation gated by approval and a server API key", a
   const productId = (await productResponse.json()).data.productId;
   const state = await (await page.request.get("/api/state")).json();
   expect(state.chatGptAdsConfigured).toBe(false);
+  expect(state.redditAdsConfigured).toBe(false);
   const template = state.templates.find(
     (item: { id: string }) => item.id === "template-product-content-showcase",
   );
@@ -184,6 +190,40 @@ test("keeps ChatGPT provider creation gated by approval and a server API key", a
   });
   expect(result.status()).toBe(400);
   expect((await result.json()).error).toContain("not connected");
+
+  const redditCreative = draftState.content.find(
+    (item: { campaignId: string; channel: string }) =>
+      item.campaignId === campaignId && item.channel === "Reddit Ads",
+  );
+  await page.request.post("/api/action", {
+    data: { type: "submitApproval", contentId: redditCreative.id },
+  });
+  await page.request.post("/api/identity", { data: { userId: "user-reviewer" } });
+  const redditReviewState = await (await page.request.get("/api/state")).json();
+  const redditApproval = redditReviewState.approvals.find(
+    (item: { contentId: string; state: string }) =>
+      item.contentId === redditCreative.id && item.state === "PENDING",
+  );
+  await page.request.post("/api/action", {
+    data: {
+      type: "decideApproval",
+      approvalId: redditApproval.id,
+      decision: "APPROVED",
+      comment: "Reddit creative verified",
+    },
+  });
+  await page.request.post("/api/identity", { data: { userId: "user-owner" } });
+  const redditResult = await page.request.post("/api/action", {
+    data: {
+      type: "createRedditAdCampaign",
+      campaignId,
+      contentId: redditCreative.id,
+      budget: 500,
+      confirmed: true,
+    },
+  });
+  expect(redditResult.status()).toBe(400);
+  expect((await redditResult.json()).error).toContain("not connected");
 });
 
 test("approval decisions and publishing remain server-enforced", async ({

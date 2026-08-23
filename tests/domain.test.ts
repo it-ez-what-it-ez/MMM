@@ -361,6 +361,7 @@ describe("GrowthOS domain rules", () => {
     expect(classifyChannel("Klaviyo Email")).toBe("messaging");
     expect(classifyChannel("Google Ads")).toBe("paid");
     expect(classifyChannel("LinkedIn Ads")).toBe("paid");
+    expect(classifyChannel("Reddit Ads")).toBe("paid");
     expect(classifyChannel("SEO landing page")).toBe("web");
   });
   it("filters templates using the same channel mapping as workspaces", () => {
@@ -401,16 +402,22 @@ describe("GrowthOS domain rules", () => {
     expect(channelNavigation).toEqual([]);
     expect(manageNavigation).toEqual([]);
   });
-  it("includes a reviewable ChatGPT chat card in core product campaigns", () => {
+  it("includes reviewable ChatGPT and Reddit ads in core product campaigns", () => {
     const product = seededCampaignTemplates.find(
       (item) => item.id === "template-product-content-showcase",
     )!;
     const chatCard = product.assets.find(
       (asset) => asset.channel === "ChatGPT Ads",
     );
+    const redditPost = product.assets.find(
+      (asset) => asset.channel === "Reddit Ads",
+    );
     expect(product.channels).toContain("ChatGPT Ads");
+    expect(product.channels).toContain("Reddit Ads");
     expect(chatCard?.type).toBe("Chat card ad");
     expect(chatCard?.title).toContain("{{productName}}");
+    expect(redditPost?.type).toBe("Sponsored text post");
+    expect(redditPost?.body).toContain("{{productBenefit}}");
   });
   it("preserves legacy paid-ad URLs and stable campaign tab routes", () => {
     expect(resolveLegacyRoute("/app/paid-ads")).toBe("/app/channels/paid");

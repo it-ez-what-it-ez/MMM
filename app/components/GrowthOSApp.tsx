@@ -365,6 +365,7 @@ type PreviewAsset = {
 function previewKind(asset: Pick<PreviewAsset, "channel" | "type">) {
   const value = `${asset.channel} ${asset.type}`.toLowerCase();
   if (value.includes("chatgpt")) return "chatgpt";
+  if (value.includes("reddit")) return "reddit";
   if (value.includes("email")) return "email";
   if (value.includes("sms") || value.includes("whatsapp")) return "sms";
   if (value.includes("tiktok")) return "tiktok";
@@ -400,6 +401,7 @@ function previewKindLabel(asset: Pick<PreviewAsset, "channel" | "type">) {
     instagram: "Instagram post",
     ad: "Paid ad",
     chatgpt: "Chat card ad",
+    reddit: "Sponsored post",
     web: "Web page",
     professional: "Social post",
   };
@@ -687,6 +689,34 @@ function AssetPreview({
           <small className="chatgpt-ad-disclosure">
             Ads are separate from the conversation response.
           </small>
+        </div>
+      )}
+
+      {kind === "reddit" && (
+        <div className="reddit-ad-shell">
+          <aside className="reddit-vote-column" aria-label="Voting preview">
+            <span>▲</span>
+            <strong>124</strong>
+            <span>▼</span>
+          </aside>
+          <div className="reddit-ad-content">
+            <header>
+              <span className="reddit-community-mark">u/</span>
+              <strong>u/{brandName.toLowerCase().replaceAll(" ", "")}</strong>
+              <small>· Promoted by {brandName}</small>
+            </header>
+            <h3>{copy(asset.title)}</h3>
+            <p>{copy(asset.body)}</p>
+            <div className="reddit-destination-row">
+              <span>{variables?.productUrl || "your-product-page.com"}</span>
+              <button>{variables?.primaryCta || "Learn more"}</button>
+            </div>
+            <footer>
+              <span>○ Comments</span>
+              <span>↗ Share</span>
+              <span>•••</span>
+            </footer>
+          </div>
         </div>
       )}
 
@@ -2114,6 +2144,19 @@ function V1CampaignCreator({
                     : "attention"
                   : "protected",
               },
+              {
+                label: "Reddit Ads",
+                detail: instance.channels.includes("Reddit Ads")
+                  ? state.redditAdsConfigured
+                    ? "Sponsored-post creative is included and Reddit OAuth is connected"
+                    : "Creative is included; connect a Reddit developer app and ad account"
+                  : "Not included in this campaign",
+                state: instance.channels.includes("Reddit Ads")
+                  ? state.redditAdsConfigured
+                    ? "ready"
+                    : "attention"
+                  : "protected",
+              },
             ]}
           />
           <label className="campaign-review-confirmation">
@@ -2181,6 +2224,9 @@ function V1ResultsView({
   const chatGptAds = state.content.filter((item) =>
     item.channel.toLowerCase().includes("chatgpt ads"),
   );
+  const redditAds = state.content.filter((item) =>
+    item.channel.toLowerCase().includes("reddit ads"),
+  );
 
   return (
     <div className="page v1-results-page">
@@ -2234,25 +2280,46 @@ function V1ResultsView({
           </button>
         ))}
       </section>
-      <section className="card v1-chatgpt-results">
-        <span className="chatgpt-mark">AI</span>
-        <div>
-          <h2>ChatGPT Ads</h2>
-          <p>
-            {chatGptAds.length
-              ? `${chatGptAds.length} ChatGPT chat card creative${chatGptAds.length === 1 ? " is" : "s are"} included across your campaigns.`
-              : "Add ChatGPT chat card creative to your next product campaign."}
-          </p>
-          <small>
-            {state.chatGptAdsConfigured
-              ? "Advertiser API connected · provider campaigns are created paused"
-              : "Creative tools ready · Ads Manager API key still needed"}
-          </small>
-        </div>
-        <button className="button secondary" onClick={() => navigate("/app/campaigns/new")}>
-          Create ChatGPT ad <ArrowRight />
-        </button>
-      </section>
+      <div className="v1-ad-destinations">
+        <section className="card v1-chatgpt-results">
+          <span className="chatgpt-mark">AI</span>
+          <div>
+            <h2>ChatGPT Ads</h2>
+            <p>
+              {chatGptAds.length
+                ? `${chatGptAds.length} chat card creative${chatGptAds.length === 1 ? "" : "s"} included.`
+                : "Add a chat card to your next product campaign."}
+            </p>
+            <small>
+              {state.chatGptAdsConfigured
+                ? "Advertiser API connected · paused creation enabled"
+                : "Creative ready · Ads Manager API key needed"}
+            </small>
+          </div>
+          <button className="button secondary" onClick={() => navigate("/app/campaigns/new")}>
+            Create ad <ArrowRight />
+          </button>
+        </section>
+        <section className="card v1-chatgpt-results v1-reddit-results">
+          <span className="reddit-mark">r/</span>
+          <div>
+            <h2>Reddit Ads</h2>
+            <p>
+              {redditAds.length
+                ? `${redditAds.length} sponsored-post creative${redditAds.length === 1 ? "" : "s"} included.`
+                : "Add a Reddit sponsored post to your next product campaign."}
+            </p>
+            <small>
+              {state.redditAdsConfigured
+                ? "Reddit OAuth connected · paused creation enabled"
+                : "Creative ready · Reddit OAuth settings needed"}
+            </small>
+          </div>
+          <button className="button secondary" onClick={() => navigate("/app/campaigns/new")}>
+            Create ad <ArrowRight />
+          </button>
+        </section>
+      </div>
     </div>
   );
 }
@@ -5456,6 +5523,9 @@ function CampaignWorkspace({
   const [chatGptTarget, setChatGptTarget] = useState<ContentItem | null>(null);
   const [chatGptBudget, setChatGptBudget] = useState("500");
   const [chatGptConfirmed, setChatGptConfirmed] = useState(false);
+  const [redditTarget, setRedditTarget] = useState<ContentItem | null>(null);
+  const [redditBudget, setRedditBudget] = useState("500");
+  const [redditConfirmed, setRedditConfirmed] = useState(false);
   const [scheduleTarget, setScheduleTarget] = useState<ContentItem | null>(
     null,
   );
@@ -5868,7 +5938,27 @@ function CampaignWorkspace({
                         <CheckCircle2 /> Provider draft created
                       </span>
                     )}
-                    {item.channel !== "ChatGPT Ads" &&
+                    {item.channel === "Reddit Ads" &&
+                      ["APPROVED", "SCHEDULED"].includes(item.state) &&
+                      !item.externalId && (
+                        <button
+                          className="primary-link"
+                          onClick={() => {
+                            setRedditTarget(item);
+                            setRedditConfirmed(false);
+                          }}
+                        >
+                          <Rocket /> Create paused ad
+                        </button>
+                      )}
+                    {item.channel === "Reddit Ads" && item.externalId && (
+                      <span className="provider-created-label">
+                        <CheckCircle2 /> Provider draft created
+                      </span>
+                    )}
+                    {!(["ChatGPT Ads", "Reddit Ads"] as string[]).includes(
+                      item.channel,
+                    ) &&
                       ["APPROVED", "SCHEDULED", "PUBLISHED"].includes(
                         item.state,
                       ) && (
@@ -6131,6 +6221,96 @@ function CampaignWorkspace({
                 "Paused ChatGPT Ads campaign created",
               );
               if (result.ok) setChatGptTarget(null);
+            }}
+          >
+            <Rocket /> Create paused campaign
+          </button>
+        </footer>
+      </Modal>
+
+      <Modal
+        open={Boolean(redditTarget)}
+        onClose={() => setRedditTarget(null)}
+        title="Create paused Reddit Ads campaign"
+        eyebrow="Real provider action"
+      >
+        <div className="modal-body">
+          <div className="confirm-block reddit-confirm-block">
+            <span className="success-orb reddit-success-orb">r/</span>
+            <h3>Send this approved sponsored post to Reddit?</h3>
+            <p>
+              GrowthOS will create a traffic campaign, ad group, structured
+              text post, and ad through Reddit Ads API v3.
+            </p>
+          </div>
+          <label>
+            Lifetime budget ({state.workspace.currency})
+            <input
+              type="number"
+              min="1"
+              max="1000000"
+              value={redditBudget}
+              onChange={(event) => setRedditBudget(event.target.value)}
+            />
+          </label>
+          <div className="alert amber">
+            <ShieldCheck />
+            <span>
+              <strong>Paused by default</strong>
+              <small>
+                Campaign, ad group, and ad are created paused. Reddit reviews
+                the ad before it can serve, and no spend begins here.
+              </small>
+            </span>
+          </div>
+          {!state.redditAdsConfigured && (
+            <div className="alert neutral">
+              <Link2 />
+              <span>
+                <strong>Reddit OAuth connection required</strong>
+                <small>
+                  Connect a Reddit developer app, authorized ad account,
+                  profile, and funding instrument as server settings.
+                </small>
+              </span>
+            </div>
+          )}
+          <label className="campaign-review-confirmation">
+            <input
+              type="checkbox"
+              aria-label="I confirm the Reddit Ads creative and budget"
+              checked={redditConfirmed}
+              onChange={(event) => setRedditConfirmed(event.target.checked)}
+            />
+            <span>
+              <strong>I confirm the creative and budget</strong>
+              <small>The action and returned provider IDs will be audited.</small>
+            </span>
+          </label>
+        </div>
+        <footer className="modal-footer">
+          <button className="button ghost" onClick={() => setRedditTarget(null)}>
+            Not now
+          </button>
+          <button
+            className="button primary"
+            disabled={!redditConfirmed || Number(redditBudget) <= 0}
+            onClick={async () => {
+              if (!redditTarget) return;
+              const result = await runAction<{
+                adId: string;
+                reviewStatus: string;
+              }>(
+                {
+                  type: "createRedditAdCampaign",
+                  campaignId: campaign.id,
+                  contentId: redditTarget.id,
+                  budget: Number(redditBudget),
+                  confirmed: true,
+                },
+                "Paused Reddit Ads campaign created",
+              );
+              if (result.ok) setRedditTarget(null);
             }}
           >
             <Rocket /> Create paused campaign

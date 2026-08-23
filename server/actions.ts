@@ -11,6 +11,10 @@ import type {
 import { getMarketingAgent } from "@/server/marketing-agent";
 import { getAIProvider, MockIntegrationAdapter } from "@/server/providers";
 import { createPausedChatGPTAdCampaign } from "@/server/chatgpt-ads";
+import {
+  createPausedRedditAdCampaign,
+  type RedditAdProgress,
+} from "@/server/reddit-ads";
 
 type MediaBucket = {
   get(key: string): Promise<{
@@ -79,6 +83,13 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("retrySync"), syncId: z.string() }),
   z.object({
     type: z.literal("createChatGPTAdCampaign"),
+    campaignId: z.string().min(3),
+    contentId: z.string().min(3),
+    budget: z.number().positive().max(1_000_000),
+    confirmed: z.literal(true),
+  }),
+  z.object({
+    type: z.literal("createRedditAdCampaign"),
     campaignId: z.string().min(3),
     contentId: z.string().min(3),
     budget: z.number().positive().max(1_000_000),
@@ -176,6 +187,7 @@ const permissions: Record<Role, Set<string>> = {
     "retrySync",
     "createPaidAd",
     "createChatGPTAdCampaign",
+    "createRedditAdCampaign",
     "activatePaidAd",
     "createFollowup",
     "updateSettings",
@@ -201,6 +213,7 @@ const permissions: Record<Role, Set<string>> = {
     "retrySync",
     "createPaidAd",
     "createChatGPTAdCampaign",
+    "createRedditAdCampaign",
     "activatePaidAd",
     "createFollowup",
     "updateSettings",
@@ -223,6 +236,7 @@ const permissions: Record<Role, Set<string>> = {
     "retrySync",
     "createPaidAd",
     "createChatGPTAdCampaign",
+    "createRedditAdCampaign",
     "createFollowup",
     "createAudience",
     "startAgentRun",
@@ -977,6 +991,12 @@ export async function performAction(
         error:
           "ChatGPT Ads uses a separate paused-campaign flow so budget and review status can be confirmed.",
       };
+    if (item.channel === "Reddit Ads")
+      return {
+        ok: false,
+        error:
+          "Reddit Ads uses a separate paused-campaign flow so budget and review status can be confirmed.",
+      };
     const key = `publish:${action.contentId}:v${item.version}`;
     const completed = await find(
       "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
@@ -1146,6 +1166,140 @@ export async function performAction(
           error instanceof Error
             ? error.message
             : "ChatGPT Ads campaign creation failed.",
+      };
+    }
+  }
+  if (action.type === "createRedditAdCampaign") {
+    const campaign = state.campaigns.find(
+      (item) => item.id === action.campaignId,
+    );
+    const item = state.content.find(
+      (content) => content.id === action.contentId,
+    );
+    if (!campaign || !item || item.campaignId !== campaign.id)
+      return { ok: false, error: "Reddit ad creative was not found." };
+    if (item.channel !== "Reddit Ads")
+      return { ok: false, error: "Choose a Reddit Ads creative item." };
+    if (!["APPROVED", "SCHEDULED"].includes(item.state))
+      return {
+        ok: false,
+        error: "Approve this Reddit ad before creating the provider campaign.",
+      };
+    const product = state.products.find(
+      (candidate) => candidate.id === campaign.plan.productId,
+    );
+    if (!product)
+      return { ok: false, error: "The campaign product was not found." };
+    const key = `reddit-ads:${campaign.id}:${item.id}:v${item.version}`;
+    let ledger = await find(
+      "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
+      key,
+    );
+    if (ledger?.status === "COMPLETED")
+      return {
+        ok: true,
+        data: {
+          adId: String(ledger.external_id),
+          status: "paused",
+          idempotent: true,
+        },
+      };
+    if (!ledger) {
+      await database()
+        .prepare(
+          "INSERT OR IGNORE INTO operation_ledger (idempotency_key, operation, external_id, status, created_at) VALUES (?, 'create_reddit_ad_campaign', '{}', 'IN_PROGRESS', ?)",
+        )
+        .bind(key, now())
+        .run();
+      ledger = await find(
+        "SELECT * FROM operation_ledger WHERE idempotency_key = ?",
+        key,
+      );
+    }
+    let resume: RedditAdProgress = {};
+    try {
+      resume = JSON.parse(String(ledger?.external_id ?? "{}"));
+    } catch {
+      resume = {};
+    }
+    try {
+      const result = await createPausedRedditAdCampaign({
+        campaignName: campaign.title,
+        budget: action.budget,
+        startDate: campaign.startDate,
+        endDate: campaign.endDate,
+        creative: {
+          headline: item.title,
+          body: item.body,
+          targetUrl: product.productUrl,
+        },
+        resume,
+        onProgress: async (progress) => {
+          await database()
+            .prepare(
+              "UPDATE operation_ledger SET external_id = ?, status = 'IN_PROGRESS' WHERE idempotency_key = ?",
+            )
+            .bind(JSON.stringify(progress), key)
+            .run();
+        },
+      });
+      await database().batch([
+        database()
+          .prepare(
+            "UPDATE operation_ledger SET external_id = ?, status = 'COMPLETED' WHERE idempotency_key = ?",
+          )
+          .bind(result.adId, key),
+        database()
+          .prepare(
+            "UPDATE content_items SET external_id = ?, updated_at = ? WHERE id = ?",
+          )
+          .bind(result.adId, now(), item.id),
+        database()
+          .prepare(
+            "INSERT INTO paid_ad_campaigns (id, workspace_id, name, platform, objective, state, budget, spend, results, date_range, creative_json, external_id) VALUES (?, 'ws-northstar', ?, 'Reddit Ads', ?, 'PAUSED', ?, 0, 0, ?, ?, ?)",
+          )
+          .bind(
+            id("ad"),
+            campaign.title,
+            campaign.objective,
+            Math.round(action.budget),
+            `${campaign.startDate} – ${campaign.endDate}`,
+            JSON.stringify([
+              { headline: item.title, body: item.body, cta: "Learn more" },
+            ]),
+            result.adId,
+          ),
+      ]);
+      const existingConnection = state.connections.find(
+        (connection) => connection.definitionId === "int-reddit-ads",
+      );
+      if (!existingConnection) {
+        await database()
+          .prepare(
+            "INSERT INTO connections (id, workspace_id, definition_id, account_name, state, capabilities_json, last_activity, last_error, success_rate) VALUES (?, 'ws-northstar', 'int-reddit-ads', 'Reddit Ads account', 'CONNECTED', '[\"CREATE_AD_CAMPAIGN\",\"READ_METRICS\"]', ?, NULL, 100)",
+          )
+          .bind(id("conn"), now())
+          .run();
+      }
+      const auditId = await audit(
+        userId,
+        "REDDIT_AD_CAMPAIGN_CREATED",
+        "PaidAdCampaign",
+        result.adId,
+        `Created paused Reddit Ads campaign ${result.campaignId}; review status ${result.reviewStatus}`,
+      );
+      return {
+        ok: true,
+        data: { ...result, idempotent: false },
+        auditEventId: auditId,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof Error
+            ? error.message
+            : "Reddit Ads campaign creation failed.",
       };
     }
   }

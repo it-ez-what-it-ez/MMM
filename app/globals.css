@@ -8792,10 +8792,55 @@ body {
 .chatgpt-sponsored-card p { margin: 0; color: #4d4e4e; font-size: 12px; line-height: 1.4; }
 .chatgpt-sponsored-card button { margin-top: auto; padding: 6px 10px; border: 1px solid #c5c5c0; border-radius: 8px; background: #fff; font-weight: 700; }
 .chatgpt-ad-disclosure { display: block; margin-top: 8px; color: #707171; text-align: center; }
+.reddit-ad-shell {
+  min-height: 230px;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  border: 1px solid #d7d9dc;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  color: #1a1a1b;
+}
+.reddit-vote-column {
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  background: #f7f8f9;
+  color: #606060;
+  font-size: 12px;
+}
+.reddit-vote-column span:first-child { color: #ff4500; }
+.reddit-ad-content { min-width: 0; padding: 13px 14px 10px; }
+.reddit-ad-content > header { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.reddit-ad-content > header small { color: #787c7e; }
+.reddit-community-mark {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #ff4500;
+  color: #fff;
+  font-weight: 850;
+}
+.reddit-ad-content h3 { margin: 13px 0 8px; font-size: 18px; line-height: 1.28; }
+.reddit-ad-content > p { margin: 0 0 15px; color: #343536; font-size: 13px; line-height: 1.5; }
+.reddit-destination-row { padding: 9px 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid #edeff1; }
+.reddit-destination-row span { min-width: 0; overflow: hidden; color: #787c7e; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.reddit-destination-row button { padding: 7px 11px; flex: 0 0 auto; border: 0; border-radius: 999px; background: #0079d3; color: #fff; font-size: 11px; font-weight: 800; }
+.reddit-ad-content > footer { padding-top: 8px; display: flex; gap: 15px; color: #878a8c; font-size: 11px; font-weight: 700; }
 .provider-created-label { display: inline-flex; align-items: center; gap: 5px; color: var(--teal); font-size: 12px; font-weight: 750; }
 .provider-created-label svg { width: 15px; }
 .page-overflow > div a { padding: 10px 12px; display: block; color: inherit; text-decoration: none; white-space: nowrap; }
 .page-overflow > div a:hover { background: var(--surface-2); }
+.v1-ad-destinations { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.v1-ad-destinations .v1-chatgpt-results { grid-template-columns: auto 1fr; }
+.v1-ad-destinations .v1-chatgpt-results > .button { grid-column: 1 / -1; width: 100%; }
+.reddit-mark { width: 44px; height: 44px; display: grid; place-items: center; border-radius: 50%; background: #ff4500; color: #fff; font-weight: 850; }
+.reddit-success-orb { background: #ff4500; color: #fff; font-weight: 850; }
 
 @media (max-width: 1040px) {
   .v1-product-grid,
@@ -8806,6 +8851,7 @@ body {
   .v1-snapshot button:nth-child(2) { border-right: 0; }
   .v1-snapshot button:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
   .v1-home-columns { grid-template-columns: 1fr; }
+  .v1-ad-destinations { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 700px) {

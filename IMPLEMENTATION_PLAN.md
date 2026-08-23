@@ -11,10 +11,11 @@ An ecommerce marketer can add a product and leave with a complete, visible, appr
 - Persistent brand foundation and voice
 - Product-first, three-decision campaign creation
 - Seasonal and evergreen templates including BFCM, Black Friday, Halloween, holiday, win-back, and product launch
-- Platform-shaped previews for Instagram carousel and Reels, Facebook, TikTok, email, SMS, standard paid ads, and ChatGPT chat cards
+- Platform-shaped previews for Instagram carousel and Reels, Facebook, TikTok, email, SMS, standard paid ads, ChatGPT chat cards, and Reddit sponsored posts
 - Immutable content versions, human approval, scheduling, audit history, and idempotent publishing
 - CSV campaign export
 - Optional real ChatGPT Ads provider creation, paused and review-aware by default
+- Optional real Reddit Ads v3 provider creation, paused and review-aware by default
 - Desktop and mobile navigation, keyboard focus, loading, errors, and empty states
 
 ## Deliberately deferred
@@ -22,6 +23,7 @@ An ecommerce marketer can add a product and leave with a complete, visible, appr
 - External authentication, billing, invitations, and multiple workspaces
 - Automatic paid-campaign activation or budget increases
 - Real Meta, Google, TikTok, social-posting, and email-provider credentials
+- Reddit image/video delivery; V1 provider creation uses API-supported structured text posts
 - General CDP modeling, audience activation, reverse ETL, and sync administration in the primary UI
 - Autonomous publishing without a human approval decision
 
@@ -31,6 +33,7 @@ An ecommerce marketer can add a product and leave with a complete, visible, appr
 - A BFCM campaign is reviewable and created in three focused decisions.
 - The user sees the exact channel creative before confirming.
 - ChatGPT Ads creation cannot proceed without approval, a real image, explicit budget confirmation, and a server API key.
+- Reddit Ads creation cannot proceed without approval, explicit budget confirmation, and complete OAuth/account configuration.
 - Provider objects are created paused and stable IDs are retained.
 - Viewer cannot mutate workspace state.
 - Typecheck, lint, unit tests, browser tests, migration generation, and production build pass.
