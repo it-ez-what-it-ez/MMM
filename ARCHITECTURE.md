@@ -1,91 +1,62 @@
-# GrowthOS V1 architecture
+# GrowthOS Production V1 architecture
 
 ## Product boundary
 
-GrowthOS V1 solves one job: turn a product and brand into campaign creative a marketer can confidently approve. The primary information architecture is intentionally small:
+GrowthOS V1 has five destinations: Home, Campaigns, Calendar, Results, and Manage. A campaign has Review, Schedule, Delivery, and Results tabs. The UI deliberately keeps provider administration, assets, team access, and workspace limits outside the daily flow.
 
 ```text
-Home
-  └─ recommended next action
-Products & Brand
-  └─ product facts + R2 image + reusable brand rules
-Campaigns
-  └─ Product → Campaign direction → Actual creative review
-Approvals
-  └─ human decision per immutable content version
-Calendar
-  └─ approved schedule
-Results
-  └─ campaign-level delivery and conversion totals
+Invite → Workspace → Brand/product → Real connection
+                                   ↓
+Template or AI → Exact previews → Human approval
+                                   ↓
+Paid preflight → Paused resources → Final confirmation → Activation
+Organic approval → Durable schedule → Publish worker → Reconciliation
+                                   ↓
+                         Provider-native results
 ```
 
-Advanced legacy routes remain readable for deep-link compatibility, but they are not part of the V1 navigation or core journey.
+## Trust boundaries
 
-## Runtime and storage
+The browser uses Supabase Auth and the public publishable key. Postgres Row Level Security isolates workspace data for every authenticated read. Consequential operations go through server routes that validate the bearer session, re-check workspace roles with the service role, write an operation and audit event, and then call the provider.
 
-The React 19 App Router application runs through Vinext on Cloudflare-compatible infrastructure.
+Provider credentials are JSON-encrypted with AES-256-GCM using a unique 96-bit IV. Ciphertext, IV, tag, and key version live in `private.provider_credentials`; `anon` and `authenticated` have no schema/table grant. Private Storage paths begin with the workspace UUID and storage policies re-check membership.
 
-```text
-Browser
-  ├─ GET  /api/state
-  ├─ POST /api/action
-  ├─ POST /api/media ─────────────────────── R2
-  └─ GET  /api/campaign-export
-                 │
-                 ├─ validation + roles + workflow gates
-                 ├─ campaign/template rendering
-                 ├─ operation ledger + audit events
-                 ├─ D1 relational state
-                 ├─ optional ChatGPT Ads Advertiser API
-                 └─ optional Reddit Ads API v3
-```
+## Data model
 
-D1 stores product records, brand rules, templates, campaigns, content and immutable versions, approvals, schedules, metrics, provider IDs, operation keys, and audits. R2 stores validated PNG, JPEG, and WebP product images using workspace-scoped keys. `drizzle/0003_giant_karnak.sql` adds the V1 products table and index.
+The migration covers profiles, workspaces, memberships, invitations, brand profiles, products/services, media, website imports, provider connections/accounts, OAuth states, templates, campaigns, content items and immutable versions, approvals, schedules, deployments, operations, metric snapshots, AI runs, publish jobs, provider readiness, and audit events.
 
-## Campaign creation
+There are no customer seeds. The bundled template manifests are versioned application artifacts and are upserted into the global template table when first used.
 
-The browser selects a persisted product and campaign template. Template variables are prefilled from product and brand facts. `instantiateCampaignTemplate` renders all channel copy and relative schedules. The user sees the rendered assets before any campaign record exists.
+## Campaign and approval invariants
 
-After confirmation, one server action writes the campaign, draft content items, initial immutable versions, relative schedules, and template-use record. Subsequent edits create new versions and return the item to draft. Submission, approval, scheduling, and publication remain separate server-enforced state transitions.
+- A campaign plan contains exact channel copy, resolved media IDs, carousel slides, destination URL, target summary, selected account, currency, budget, and dates.
+- Every uploaded subject layer has `preserveOriginal: true`; optional generation is limited to backgrounds.
+- Approval is rejected while any unresolved field exists, any destination account is missing, any non-Search creative lacks media, or selected media has not passed moderation.
+- Approved content versions are immutable. Editing must create a new version and return the item to draft, invalidating approval.
+- Solo workspaces allow owner self-approval. Team workspaces reject approval by the campaign creator.
 
-## ChatGPT Ads adapter
+## Real integrations
 
-`server/chatgpt-ads.ts` is a server-only boundary for `https://api.ads.openai.com/v1`. It never exposes the workspace API key to the browser.
+`ConnectionAdapter`, `PaidAdsAdapter`, `OrganicPublisherAdapter`, `MeasurementAdapter`, and `AIProvider` are server-only contracts. Production code contains no test double.
 
-The guarded action requires:
+OAuth providers use one-time hashed state and PKCE where supported. Callback exchange, refresh credentials, account discovery, and health results occur server-side. A readiness record plus actual environment configuration gates each connection button; production additionally requires approved review status, verified redirect, a passed smoke test, and a disabled kill switch.
 
-1. an approved ChatGPT Ads content item;
-2. a persisted product URL and uploaded R2 image;
-3. an explicit budget confirmation;
-4. an account-scoped Ads API key stored by the provider credential boundary.
+Paid adapters validate against the real account before resource creation. The launch route reruns preflight, creates all resources paused, persists provider IDs, and only then activates. Any failure halts the batch. Activated resources are paused in reverse order; an unsuccessful compensation becomes `needs_attention`.
 
-It constrains chat-card titles and body copy to provider limits, uploads the image, and creates a paused campaign, paused ad group, and paused ad. Returned IDs and review status are audited. A completed operation key makes later retries return the existing provider result. Activation remains a separate explicit action.
+Organic publishing uses the private Supabase `organic_publishing` PGMQ queue plus durable `publish_jobs` ledger rows. The queue provides delayed visibility and redelivery; the ledger provides workspace ownership, idempotency, attempts, provider IDs, diagnostics, and user-visible state. The worker atomically claims the ledger row, validates and publishes the approved version, and deletes the queue message only after success or durable retry replacement. Dead-letter state is visible and auditable.
 
-## Reddit Ads adapter
+## AI boundary
 
-`server/reddit-ads.ts` is a server-only OAuth boundary for Reddit Ads API v3. It refreshes a short-lived bearer token with the configured developer application, sends the required application User-Agent, and never exposes the client secret or refresh token to the browser.
+The OpenAI implementation uses the Responses API with strict JSON Schema output. Inputs are moderated before planning; uploaded images are moderated before approval or provider delivery. Every AI run stores its model, prompt version, input hash, inputs, structured output, usage, moderation result, status, and acceptance. There is no silent or canned fallback.
 
-The guarded action requires an approved Reddit Ads content item, a valid product destination, explicit lifetime-budget confirmation, and complete account, profile, funding, and conversion-pixel selection. It creates a paused Traffic campaign, paused ad group, structured text sponsored post, and paused ad. Each provider ID is checkpointed as it is returned, so a recoverable retry resumes the unfinished step instead of recreating the earlier hierarchy. The final identifiers, preview, and review state are recorded in the operation ledger and audit log. V1 uses structured text posts because private product images are not fetchable by Reddit; media upload support can follow when a public asset-delivery boundary is added.
+AI is draft-only. Approval, connection, deletion, publishing, ad activation, and budget changes require authorized server mutations and explicit human confirmation.
 
-## OAuth and provider credentials
+## Website and media safety
 
-`server/provider-oauth.ts` owns Meta, Google, and Reddit authorization. A one-time state row is scoped to the workspace, definition, and current demo user, expires after ten minutes, and is consumed before token exchange. Provider callbacks discover real account options but do not enable publishing until an Owner or Admin explicitly selects one.
+Website import resolves A and AAAA records through DNS-over-HTTPS and rejects local, loopback, link-local, private, and reserved targets. Redirects are manual, capped, revalidated, and same-site. Only HTML is accepted, with an eight-second fetch timeout, two-megabyte page cap, and five-page crawl limit. Scripts/styles are never executed, and extracted suggestions require confirmation.
 
-`server/provider-credentials.ts` encrypts access and refresh tokens using AES-256-GCM with a unique nonce per value. `provider_credentials` stores ciphertext, account metadata, and selected provider assets; `/api/state` exposes only sanitized account labels and options. `server/provider-access.ts` refreshes expiring Google and Reddit tokens server-side.
+Storage remains private. Providers receive expiring GrowthOS URLs backed by hashed, request-limited delivery tokens. Each request is logged and the URL stops serving after expiry or request exhaustion.
 
-`server/meta-ads.ts` and `server/google-ads.ts` create real provider campaign hierarchies in paused state. Consequential activation calls the provider first and updates D1 only after the provider succeeds.
+## Environment separation
 
-## Security and correctness
-
-- HTTP-only demo sessions resolve the seeded role; every write is authorized again on the server.
-- Viewer is read-only; Reviewer can decide approvals; Marketer and Owner can create products and campaigns.
-- All action payloads are parsed by a discriminated Zod schema.
-- Uploaded content is allowlisted by MIME type and size.
-- Product URLs are validated before persistence.
-- Unapproved work cannot be published or sent to ChatGPT Ads or Reddit Ads.
-- Secrets are server-only; the default local and hosted application contains none.
-- Consequential actions require an explicit `confirmed: true` payload and produce an audit event.
-
-## Validation
-
-Vitest covers domain rules, navigation scope, template rendering, and provider-creative inclusion. Playwright exercises real D1/R2 persistence, credential gates, and cross-role workflows. TypeScript, ESLint, migration generation, and the production Vinext build protect the deployment boundary.
+Development, staging, and production need separate Supabase projects, storage buckets, provider apps, secrets, OAuth callbacks, webhooks, encryption keys, OpenAI projects, worker secrets, and alerting. Production provider switches stay off until platform review and smoke-test evidence are recorded.

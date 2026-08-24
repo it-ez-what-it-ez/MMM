@@ -1,88 +1,157 @@
-# GrowthOS V1
+# GrowthOS Production V1
 
-GrowthOS turns a real product and brand into a complete ecommerce campaign that a marketer can see, edit, approve, and hand off. This is the focused V1 product—not a broad marketing-operations demo.
+GrowthOS is an invite-only campaign creation and delivery product for US and Canadian businesses. A marketer can start from one of twelve curated bundles or an AI objective, resolve the campaign with real product/service media, inspect every channel-specific creative and delivery field, approve immutable versions, create paid provider resources paused, and explicitly launch.
 
-## V1 workflow
+This repository contains no demo users, seeded workspace, simulated metrics, mock provider, or mock AI fallback. If production infrastructure is absent, the application says so and remains unavailable.
 
-1. Add a product with its image, description, price, and destination URL.
-2. Save the brand foundation and voice that every campaign must follow.
-3. Pick an occasion or describe the result you want.
-4. Review the actual Instagram, Facebook, TikTok, email, SMS, paid-ad, ChatGPT Ads, and Reddit Ads creative.
-5. Create editable drafts, submit individual assets for approval, and schedule approved work.
-6. Export the complete campaign as CSV or use an enabled provider action.
+## V1 scope
 
-The main product has six workspaces: Home, Campaigns, Products & Brand, Approvals, Calendar, and Results. Older operational routes remain compatible for existing deep links, but they are deliberately absent from the V1 navigation.
+Paid destinations:
 
-## Real product behavior
+- Meta static-image and carousel ads
+- Google responsive Search and Display ads
+- TikTok supported static carousel campaigns
+- Reddit Ads
+- ChatGPT Ads Early Access for approved Advertiser API accounts
 
-- Products, brand data, campaigns, content versions, schedules, approvals, results, audit events, and operation IDs persist in Cloudflare D1.
-- Product images are validated and stored in Cloudflare R2.
-- Every mutation is Zod validated and role checked on the server.
-- Drafts do not publish themselves. Approval and consequential provider actions require explicit confirmation.
-- Provider writes use an operation ledger so a completed action is not duplicated after refresh or retry.
-- The campaign CSV endpoint provides a practical handoff when a channel adapter is not enabled.
+Organic destinations:
 
-## Real advertising account connections
+- Facebook Pages
+- Instagram professional accounts
+- LinkedIn organization pages
+- TikTok photo posts and photo carousels
 
-GrowthOS has production account-onboarding boundaries for Meta Ads, Google Ads, Reddit Ads, and ChatGPT Ads:
+Email, SMS, WhatsApp, video, native lead forms, ecommerce catalogs, CRM/CDP sync, paid LinkedIn, and other ad networks are deliberately excluded.
 
-- Meta, Google, and Reddit use provider-hosted OAuth. GrowthOS never receives the advertiser's password.
-- Access and refresh tokens are AES-GCM encrypted before they are written to D1. Tokens are never returned in `/api/state` or sent to the browser.
-- After OAuth, an Owner or Admin chooses the provider ad account. Meta also requires a Page; Reddit requires a profile, funding instrument, and conversion pixel.
-- Live connection tests run on the server. Disconnect removes the encrypted credential.
-- Meta, Google, Reddit, and ChatGPT provider campaigns are created paused. Activation is a second confirmed server action and updates the real provider before GrowthOS marks the campaign active.
+## Production stack
 
-The platform owner must create and approve the OAuth applications first. Copy `.env.example`, add the client credentials and token-encryption key, and register these callback paths for both local and hosted origins:
+- React 19 App Router through Vinext and ChatGPT Sites hosting
+- Supabase Auth, Postgres, Storage, Queues, Cron, and Edge Functions
+- Row Level Security on every workspace-owned table
+- AES-256-GCM encrypted provider credentials in a private schema with no browser grants
+- OpenAI Responses API strict JSON Schema generation, `gpt-image-2` optional backgrounds, and moderation
+- Real provider OAuth, account discovery, paused creation, preflight, activation, status, and reporting boundaries
+
+## Local setup
+
+Requirements: Node.js `>=22.13.0`, npm, and a Supabase development project. Do not point local development at production.
+
+1. Install dependencies.
+
+   ```bash
+   npm install
+   ```
+
+2. Create three separate Supabase projects before accepting customer data: development, staging, and production. Apply [the V1 SQL migration](./supabase/migrations/202608230001_growthos_v1.sql) to development first.
+
+   ```bash
+   supabase link --project-ref YOUR_DEVELOPMENT_PROJECT
+   supabase db push
+   ```
+
+   Add `private` to each project's exposed API schemas. The migration grants that
+   schema only to `service_role` and explicitly revokes it from `anon` and
+   `authenticated`; this lets server routes use encrypted credentials without
+   making credential rows browser-readable.
+
+3. Copy `.env.example` to an ignored `.env.local` or `.dev.vars` and configure at minimum:
+
+   ```text
+   NEXT_PUBLIC_SUPABASE_URL=
+   NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=
+   SUPABASE_SECRET_KEY=
+   PROVIDER_TOKEN_ENCRYPTION_KEY=
+   APP_ORIGIN=http://localhost:3000
+   NEXT_PUBLIC_APP_ORIGIN=http://localhost:3000
+   ```
+
+   Generate a 32-byte encryption key and encode it as base64 or 64 hexadecimal characters. Never reuse the same key across development, staging, and production.
+
+4. Configure Supabase Auth:
+
+   - disable open sign-up;
+   - enable Google and email magic links;
+   - add `http://localhost:3000/auth/callback` locally and the exact staging/production callback URLs;
+   - configure Resend or another production SMTP provider before invitations are sent;
+   - use the platform admin API or Supabase dashboard to invite the first owner.
+
+5. Start the app.
+
+   ```bash
+   npm run dev
+   ```
+
+Without the Supabase variables, `/` intentionally shows a production-setup gate instead of a fake workspace.
+
+## Provider onboarding
+
+GrowthOS must own an approved developer application for every OAuth provider. The customer's account does not replace the platform application.
+
+For each environment:
+
+1. Create the provider application and exact callback URL:
+
+   ```text
+   {APP_ORIGIN}/api/v1/oauth/{provider}/callback
+   ```
+
+2. Add application credentials to server-only environment variables.
+3. Complete sandbox access, business verification, permissions review, and webhook setup.
+4. Run a sandbox/production smoke test that creates only paused resources.
+5. Update `platform_provider_readiness` through the platform-admin API.
+6. Disable the provider kill switch only after the latest smoke test passes.
+
+Customer connection buttons are disabled until all readiness checks pass. ChatGPT Ads is different: after GrowthOS receives partner access, each customer enters an account-scoped key from OpenAI Ads Manager; GrowthOS verifies it with `GET /ad_account` and encrypts it.
+
+Reddit Ads and TikTok Ads currently have an additional source-level acceptance
+gate. They cannot be enabled by changing a database flag until complete
+profile/pixel or advertiser-format discovery and the full paused hierarchy have
+been proven. They remain part of the V1 target, not a fake selectable connector.
+
+## Durable jobs
+
+The application records organic schedules and publish jobs in Postgres and
+dispatches each due job through the private `organic_publishing` Supabase Queue.
+Only `service_role` can call the queue wrappers; no queue schema or operation is
+granted to browser roles. Configure Supabase Cron to invoke:
 
 ```text
-/api/oauth/google/callback
-/api/oauth/meta/callback
-/api/oauth/reddit/callback
+POST {APP_ORIGIN}/api/v1/internal/publish-due
+X-GrowthOS-Worker-Secret: {GROWTHOS_WORKER_SECRET}
 ```
 
-Until those values are present, the product says **Platform setup required**; it does not present seeded or mocked ad accounts as connected.
+Run it every minute. The bundled `publish-due` Edge Function forwards the
+request with the server-only worker secret. The worker reads queue messages with
+a visibility timeout, atomically claims the matching job ledger row, deletes a
+message only after success or a durable replacement has been enqueued, retries
+with exponential backoff, and moves exhausted jobs to `dead_letter`. Provider
+request IDs and errors are persisted without credentials.
 
-## ChatGPT Ads
+Schedule `sync-results` every 15 minutes to synchronize provider-reported paid
+metrics, and `refresh-tokens` every 10 minutes to rotate expiring OAuth access
+tokens. Schedule `reconcile-organic` every two minutes to resolve asynchronous
+TikTok publishing status. Set `GROWTHOS_APP_ORIGIN` and the same 32+ character
+`GROWTHOS_WORKER_SECRET` as Edge Function secrets.
 
-Product campaigns include a real chat-card preview. After the creative is approved, GrowthOS can use OpenAI's Advertiser API to:
+## Security behavior
 
-- upload the selected product image;
-- create the Campaign → Ad Group → Ad hierarchy;
-- apply a confirmed lifetime budget;
-- create every provider object in `paused` state;
-- retain the returned ad ID and review state in the campaign and audit log.
-
-OpenAI's current Ads API uses account-scoped API keys rather than advertiser OAuth. An Owner or Admin pastes a key from [OpenAI Ads Manager](https://ads.openai.com) into the secure connection dialog; GrowthOS verifies it server-side and stores it encrypted. The integration follows the official [API overview](https://developers.openai.com/ads/api-overview), [quickstart](https://developers.openai.com/ads/api-quickstart), and [authentication reference](https://developers.openai.com/ads/api-reference/authentication).
-
-## Reddit Ads
-
-Product campaigns also include a native sponsored-post preview. After approval and explicit budget confirmation, GrowthOS can use Reddit Ads API v3 to create a Traffic campaign, ad group, structured text post, and ad. Every object is created paused, and the returned provider IDs, preview URL, and review state are persisted.
-
-Live account login requires a Reddit developer app configured by the platform owner. The user authorizes `adsread` and `adsedit`, then selects an ad account, profile, funding instrument, and conversion pixel in GrowthOS. See Reddit's [API overview](https://ads-api.reddit.com/docs/v3/), [authentication guide](https://ads-api.reddit.com/docs/v3/authenticate-your-developer-application), and [campaign setup guide](https://ads-api.reddit.com/docs/v3/guides/programs/campaign/campaign-setup).
-
-## Meta and Google Ads
-
-Meta uses Facebook Login and the Marketing API with `ads_management`, `ads_read`, `business_management`, and Page discovery permissions. The platform app needs review/advanced access before advertisers outside the app's test roles can connect. GrowthOS creates a paused campaign, ad set, creative, and ad, and stores the provider campaign ID for activation.
-
-Google uses multi-user OAuth with offline access and the `adwords` scope. The platform also needs a Google Ads developer token. GrowthOS discovers eligible non-manager accounts, then creates a paused Search campaign budget, campaign, ad group, and responsive search ad.
-
-## Local development
-
-Prerequisites: Node.js `>=22.13.0` and npm.
-
-```bash
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000). Vinext and Miniflare provide local D1 and R2 bindings from `.openai/hosting.json`.
-
-No credential is needed for the complete product-to-approved-draft workflow. Optional server-only settings are documented in `.env.example`.
+- OAuth state is one-time, user/workspace/provider scoped, hashed at rest, expires after ten minutes, and uses PKCE where supported.
+- Provider secrets are available only through the service-role private schema.
+- Website import blocks local/private addresses, checks DNS A/AAAA answers, manually validates redirects, stays same-site, accepts only HTML, and applies strict time/size/page limits.
+- Private creative media is delivered through expiring, request-limited provider URLs; the storage bucket remains private.
+- Uploads and AI inputs are moderated. An unavailable OpenAI API produces a real error and does not generate canned content.
+- Approval is invalid when media, URL, account, budget, or provider-required fields are unresolved.
+- TikTok Organic account discovery records the creator's current privacy and
+  comment capabilities. The user must explicitly choose a listed privacy level;
+  GrowthOS queries Creator Info again during publish preflight and blocks stale
+  or disallowed settings.
+- AI cannot approve, publish, activate, increase budgets, connect accounts, or delete content.
+- Paid launch is a confirmation proposal bound to the exact campaign-plan hash. A changed campaign must be reviewed again.
+- Activation failure stops remaining activation and attempts to pause every resource already activated in that batch.
 
 ## Validation
 
 ```bash
-npm run db:generate
 npm run typecheck
 npm run lint
 npm test
@@ -90,6 +159,6 @@ npm run test:e2e
 npm run build
 ```
 
-Playwright covers product upload persistence, the three-step BFCM journey, visual ChatGPT and Reddit ad review, provider-credential gating, approval enforcement, idempotent publishing, CSV export, responsive navigation, and role restrictions.
+Real-provider acceptance additionally requires approved test accounts, paused production-resource creation, organic test-page publishing, token expiry/reconnect scenarios, billing and permission-loss failures, rate limits, redacted request/response logs, and a separately approved low-budget smoke test. A green local build does not replace provider review.
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for system boundaries and [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the V1 scope.
+See [ARCHITECTURE.md](./ARCHITECTURE.md) for the system design and [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for delivery gates.

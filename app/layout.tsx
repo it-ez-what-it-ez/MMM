@@ -27,11 +27,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title: "GrowthOS — Marketing, orchestrated",
     description:
-      "Plan, create, approve, activate, and learn across every marketing channel from one AI marketing control plane.",
+      "Create, review, and deliver real paid and organic campaigns from one calm workflow.",
     openGraph: {
       title: "GrowthOS — Marketing, orchestrated",
       description:
-        "The AI marketing control plane for coordinated, brand-aware campaigns.",
+        "Real campaign creation, exact previews, approvals, and provider delivery.",
       type: "website",
       images: [
         {
@@ -46,7 +46,7 @@ export async function generateMetadata(): Promise<Metadata> {
       card: "summary_large_image",
       title: "GrowthOS — Marketing, orchestrated",
       description:
-        "The AI marketing control plane for coordinated, brand-aware campaigns.",
+        "Real campaign creation, exact previews, approvals, and provider delivery.",
       images: [socialImage],
     },
     icons: {

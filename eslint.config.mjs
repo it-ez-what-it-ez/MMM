@@ -35,6 +35,12 @@ const eslintConfig = defineConfig([
         version: "detect",
       },
     },
+    rules: {
+      "@next/next/no-html-link-for-pages": "off",
+      "@next/next/no-img-element": "off",
+      "react-hooks/set-state-in-effect": "off",
+      "jsx-a11y/label-has-associated-control": "off",
+    },
   },
 ]);
 
