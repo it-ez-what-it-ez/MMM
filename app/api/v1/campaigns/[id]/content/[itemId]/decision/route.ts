@@ -175,6 +175,11 @@ export async function POST(
             "id",
             schedules.map((schedule) => schedule.id),
           );
+      await admin
+        .from("message_batches")
+        .update({ status: "cancelled" })
+        .eq("content_version_id", item.current_version_id)
+        .in("status", ["queued", "preparing"]);
     }
 
     const { data: campaignItems } = await admin

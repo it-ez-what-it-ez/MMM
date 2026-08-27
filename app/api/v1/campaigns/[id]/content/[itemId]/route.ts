@@ -101,6 +101,7 @@ export async function POST(
         searchDescriptions: input.content.searchDescriptions,
         searchKeywords: input.content.searchKeywords,
         publishingOptions: input.content.publishingOptions,
+        messaging: input.content.messaging,
       },
       creative_scene: input.content.scene ?? {},
       rendered_media_ids: input.content.mediaIds,
@@ -136,6 +137,11 @@ export async function POST(
         await admin.from("schedules").update({ status: "cancelled" }).in("id", scheduleIds);
       if (jobIds.length)
         await admin.from("publish_jobs").update({ status: "cancelled" }).in("id", jobIds);
+      await admin
+        .from("message_batches")
+        .update({ status: "cancelled" })
+        .eq("content_version_id", item.current_version_id)
+        .in("status", ["queued", "preparing"]);
     }
 
     await admin.from("audit_events").insert({

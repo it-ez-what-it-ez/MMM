@@ -12,6 +12,7 @@ import {
   getTemplate,
   templatesForChannels,
 } from "@/lib/v1/templates";
+import { buildCampaignEmailHtml, isSmsOptOut, smsSegmentCount } from "@/lib/v1/messaging";
 
 const mediaId = "00000000-0000-4000-8000-000000000001";
 const productId = "00000000-0000-4000-8000-000000000002";
@@ -97,7 +98,7 @@ describe("production template library", () => {
         expect(asset.exampleHeadline.length).toBeGreaterThan(3);
         expect(asset.exampleBody.length).toBeGreaterThan(10);
         expect(asset.aspectRatio).toMatch(/^\d+(\.\d+)?:\d+(\.\d+)?$/);
-        expect(["video", "email", "sms", "whatsapp"]).not.toContain(
+        expect(["video", "whatsapp"]).not.toContain(
           asset.format,
         );
       }
@@ -187,7 +188,7 @@ describe("approval and creative safety", () => {
 });
 
 describe("provider capability map", () => {
-  it("covers every V1 paid and organic provider without email or SMS", () => {
+  it("covers every V1 paid, organic, email, and SMS provider", () => {
     expect(Object.keys(providerCapabilities)).toEqual(
       expect.arrayContaining([
         "meta_business",
@@ -198,16 +199,61 @@ describe("provider capability map", () => {
         "reddit_ads",
         "linkedin_pages",
         "chatgpt_ads",
+        "twilio_messaging",
+        "sendgrid_email",
       ]),
     );
     expect(providerCapabilities.google_ads.formats).toEqual(
       expect.arrayContaining(["responsive_search", "responsive_display"]),
     );
     expect(providerCapabilities.tiktok_organic.formats).not.toContain("video");
-    expect(
-      Object.values(providerCapabilities).flatMap(
-        (provider) => provider.formats,
-      ),
-    ).not.toEqual(expect.arrayContaining(["email", "sms"]));
+    expect(providerCapabilities.twilio_messaging.channels).toEqual(["sms"]);
+    expect(providerCapabilities.sendgrid_email.channels).toEqual(["email"]);
+  });
+});
+
+describe("messaging safety", () => {
+  it("requires a consented audience and mandatory email footer", () => {
+    const plan = validPlan();
+    plan.channels = ["email"];
+    plan.content = [{
+      ...plan.content[0],
+      channel: "email",
+      format: "email_html",
+      messaging: {
+        audienceId: "00000000-0000-4000-8000-000000000099",
+        estimatedRecipients: 12,
+        fromName: "Example Inc.",
+        fromAddress: "hello@example.com",
+        replyToAddress: "support@example.com",
+        subject: "The real offer",
+        preheader: "A preview",
+        html: buildCampaignEmailHtml({ businessName: "Example Inc.", headline: "The real offer", body: "Factual body.", cta: "Learn more", destinationUrl: "https://example.com/product", physicalAddress: "123 Main Street, Toronto, ON", includeHeroImage: true }),
+        physicalAddress: "123 Main Street, Toronto, ON",
+        smsOptOutText: null,
+      },
+    }];
+    expect(approvalBlockers(plan)).toEqual([]);
+    plan.content[0].messaging!.html = "<p>No opt out</p>";
+    expect(approvalBlockers(plan)).toContain("Email: include the required unsubscribe link");
+  });
+
+  it("does not require an image for SMS but requires STOP in the exact body", () => {
+    const plan = validPlan();
+    plan.channels = ["sms"];
+    plan.content = [{
+      ...plan.content[0], channel: "sms", format: "sms_text", mediaIds: [], body: "Offer details at https://example.com. Reply STOP to unsubscribe.",
+      messaging: { audienceId: "00000000-0000-4000-8000-000000000099", estimatedRecipients: 3, fromName: "Example", fromAddress: null, replyToAddress: null, subject: null, preheader: null, html: null, physicalAddress: null, smsOptOutText: "Reply STOP to unsubscribe." },
+    }];
+    expect(approvalBlockers(plan)).toEqual([]);
+    plan.content[0].body = "Offer details at https://example.com.";
+    expect(approvalBlockers(plan)).toContain("SMS: include STOP opt-out instructions");
+  });
+
+  it("calculates segments and recognizes mandated opt-out keywords", () => {
+    expect(smsSegmentCount("A".repeat(161))).toMatchObject({ encoding: "GSM-7", segments: 2 });
+    expect(smsSegmentCount("Hello 👋")).toMatchObject({ encoding: "UCS-2", segments: 1 });
+    expect(isSmsOptOut("  Opt   Out ")).toBe(true);
+    expect(isSmsOptOut("keep sending")).toBe(false);
   });
 });

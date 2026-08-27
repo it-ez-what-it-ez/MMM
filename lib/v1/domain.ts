@@ -9,6 +9,8 @@ export const PROVIDER_KEYS = [
   "reddit_ads",
   "linkedin_pages",
   "chatgpt_ads",
+  "twilio_messaging",
+  "sendgrid_email",
 ] as const;
 
 export const CHANNEL_KEYS = [
@@ -22,9 +24,12 @@ export const CHANNEL_KEYS = [
   "tiktok_ads",
   "reddit_ads",
   "chatgpt_ads",
+  "email",
+  "sms",
 ] as const;
 
 export type ProviderKey = (typeof PROVIDER_KEYS)[number];
+export type OAuthProviderKey = Exclude<ProviderKey, "chatgpt_ads" | "twilio_messaging" | "sendgrid_email">;
 export type ChannelKey = (typeof CHANNEL_KEYS)[number];
 
 export type ProviderCapability = {
@@ -50,6 +55,8 @@ export const channelLabels: Record<ChannelKey, string> = {
   tiktok_ads: "TikTok Ads",
   reddit_ads: "Reddit Ads",
   chatgpt_ads: "ChatGPT Ads",
+  email: "Email",
+  sms: "SMS",
 };
 
 export const providerCapabilities: Record<ProviderKey, ProviderCapability> = {
@@ -138,6 +145,28 @@ export const providerCapabilities: Record<ProviderKey, ProviderCapability> = {
     supportsReporting: true,
     connectionLimitations: "Early Access. Each customer supplies an account-scoped Advertiser API key; OAuth is not available.",
   },
+  twilio_messaging: {
+    provider: "twilio_messaging",
+    label: "Twilio Messaging",
+    channels: ["sms"],
+    formats: ["sms_text"],
+    objectives: ["awareness", "traffic", "leads", "sales"],
+    currencies: ["USD", "CAD"],
+    supportsPublishing: true,
+    supportsReporting: true,
+    connectionLimitations: "The business must own a Twilio Messaging Service and complete every registration required for its recipients, including US A2P 10DLC where applicable.",
+  },
+  sendgrid_email: {
+    provider: "sendgrid_email",
+    label: "Twilio SendGrid",
+    channels: ["email"],
+    formats: ["email_html"],
+    objectives: ["awareness", "traffic", "leads", "sales"],
+    currencies: ["USD", "CAD"],
+    supportsPublishing: true,
+    supportsReporting: true,
+    connectionLimitations: "A domain-authenticated sending identity and a signed Event Webhook are required before production delivery.",
+  },
 };
 
 export const templateVariableSchema = z.object({
@@ -151,7 +180,7 @@ export const templateVariableSchema = z.object({
 export const templateAssetRecipeSchema = z.object({
   id: z.string().min(1),
   channel: z.enum(CHANNEL_KEYS),
-  format: z.enum(["static_image", "carousel", "photo", "photo_carousel", "text", "document", "responsive_search", "responsive_display"]),
+  format: z.enum(["static_image", "carousel", "photo", "photo_carousel", "text", "document", "responsive_search", "responsive_display", "email_html", "sms_text"]),
   aspectRatio: z.string(),
   slideCount: z.number().int().min(1).max(10).default(1),
   copyIntent: z.string(),
@@ -215,6 +244,21 @@ export const campaignContentSchema = z.object({
     .object({
       privacy: z.string().nullable(),
       commentsEnabled: z.boolean(),
+    })
+    .nullable()
+    .default(null),
+  messaging: z
+    .object({
+      audienceId: z.string().uuid(),
+      estimatedRecipients: z.number().int().nonnegative(),
+      fromName: z.string().min(1).max(100).nullable(),
+      fromAddress: z.string().email().nullable(),
+      replyToAddress: z.string().email().nullable(),
+      subject: z.string().min(1).max(998).nullable(),
+      preheader: z.string().max(200).nullable(),
+      html: z.string().max(250000).nullable(),
+      physicalAddress: z.string().max(500).nullable(),
+      smsOptOutText: z.string().max(160).nullable(),
     })
     .nullable()
     .default(null),
@@ -291,7 +335,25 @@ export function approvalBlockers(plan: CampaignPlan): string[] {
       blockers.add("Google Search: add at least two final descriptions");
     if (item.channel === "google_search" && (item.searchKeywords?.length ?? 0) < 1)
       blockers.add("Google Search: add at least one reviewed keyword");
-    if (item.channel !== "google_search" && item.mediaIds.length === 0) blockers.add(`${channelLabels[item.channel]}: add a real image`);
+    if (!["google_search", "sms"].includes(item.channel) && item.mediaIds.length === 0)
+      blockers.add(`${channelLabels[item.channel]}: add a real image`);
+    if (item.channel === "email") {
+      if (!item.messaging?.audienceId || !item.messaging.estimatedRecipients)
+        blockers.add("Email: choose a consented audience with at least one recipient");
+      if (!item.messaging?.subject) blockers.add("Email: add a subject line");
+      if (!item.messaging?.html?.includes("{{unsubscribe_url}}"))
+        blockers.add("Email: include the required unsubscribe link");
+      if (!item.messaging?.fromAddress) blockers.add("Email: select a verified sender");
+      if (!item.messaging?.physicalAddress)
+        blockers.add("Email: add the sender's physical mailing address");
+    }
+    if (item.channel === "sms") {
+      if (!item.messaging?.audienceId || !item.messaging.estimatedRecipients)
+        blockers.add("SMS: choose a consented audience with at least one recipient");
+      if (!item.body.trim()) blockers.add("SMS: add the final message");
+      if (!/\bstop\b/i.test(item.body))
+        blockers.add("SMS: include STOP opt-out instructions");
+    }
     if (
       paidChannels.has(item.channel) &&
       (!Array.isArray(item.targeting.countries) ||

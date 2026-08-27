@@ -1,7 +1,7 @@
 import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ProviderKey } from "@/lib/v1/domain";
+import type { OAuthProviderKey } from "@/lib/v1/domain";
 import { encryptCredential } from "./credentials";
 import { oauthConfiguration } from "./provider-platform";
 
@@ -72,7 +72,7 @@ function tokenSetFromPayload(
 }
 
 export async function exchangeAuthorizationCode(
-  provider: Exclude<ProviderKey, "chatgpt_ads">,
+  provider: OAuthProviderKey,
   code: string,
   verifier: string | null,
 ): Promise<TokenSet> {
@@ -115,7 +115,7 @@ export async function exchangeAuthorizationCode(
 }
 
 export async function refreshAuthorizationTokens(
-  provider: Exclude<ProviderKey, "chatgpt_ads">,
+  provider: OAuthProviderKey,
   current: TokenSet,
 ): Promise<TokenSet> {
   const config = oauthConfiguration(provider);
@@ -200,7 +200,7 @@ async function authorizedPostJson(url: string, token: string) {
 }
 
 export async function discoverProviderAccounts(
-  provider: Exclude<ProviderKey, "chatgpt_ads">,
+  provider: OAuthProviderKey,
   tokens: TokenSet,
 ): Promise<{ externalUserId: string; accounts: DiscoveredAccount[] }> {
   if (provider === "meta_business") {
@@ -450,7 +450,7 @@ export async function discoverProviderAccounts(
 }
 
 export async function persistProviderConnection(input: {
-  provider: Exclude<ProviderKey, "chatgpt_ads">;
+  provider: OAuthProviderKey;
   workspaceId: string;
   userId: string;
   tokens: TokenSet;

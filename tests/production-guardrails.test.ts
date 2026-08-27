@@ -7,6 +7,10 @@ const migration = readFileSync(
   join(root, "supabase/migrations/202608230001_growthos_v1.sql"),
   "utf8",
 );
+const messagingMigration = readFileSync(
+  join(root, "supabase/migrations/202608260001_email_sms.sql"),
+  "utf8",
+);
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -114,6 +118,16 @@ describe("database isolation", () => {
     expect(editRoute).toContain('from("content_versions").insert');
     expect(editRoute).toContain('status: "cancelled"');
     expect(editRoute).toContain('status: "draft"');
+  });
+
+  it("installs consent-first durable email and SMS delivery", () => {
+    for (const table of ["contacts", "contact_lists", "communication_consents", "consent_events", "suppressions", "message_batches", "message_deliveries", "message_events"])
+      expect(messagingMigration).toContain(`create table public.${table}`);
+    expect(messagingMigration).toContain("select pgmq.create('messaging_delivery')");
+    expect(messagingMigration).toContain("every imported row requires explicit consent proof");
+    expect(readFileSync(join(root, "app/api/v1/internal/send-messages/route.ts"), "utf8")).toContain("readMessageQueue");
+    expect(readFileSync(join(root, "app/api/v1/webhooks/twilio/[connectionId]/route.ts"), "utf8")).toContain("validateTwilioSignature");
+    expect(readFileSync(join(root, "app/api/v1/webhooks/sendgrid/[connectionId]/route.ts"), "utf8")).toContain("validateSendGridSignature");
   });
 
   it("supports audited per-content decisions and automatic unscheduling", () => {

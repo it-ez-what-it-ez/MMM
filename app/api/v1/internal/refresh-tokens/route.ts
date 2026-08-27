@@ -1,5 +1,5 @@
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
-import type { ProviderKey } from "@/lib/v1/domain";
+import type { OAuthProviderKey } from "@/lib/v1/domain";
 import { decryptCredential, encryptCredential } from "@/server/v1/credentials";
 import {
   refreshAuthorizationTokens,
@@ -50,7 +50,7 @@ export async function POST(request: Request) {
         keyVersion: row.key_version,
       });
       const refreshed = await refreshAuthorizationTokens(
-        connection.provider_key as Exclude<ProviderKey, "chatgpt_ads">,
+        connection.provider_key as OAuthProviderKey,
         {
           accessToken: current.accessToken,
           refreshToken: current.refreshToken,

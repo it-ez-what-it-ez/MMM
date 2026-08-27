@@ -10,6 +10,7 @@ import {
   loadApprovedCampaign,
   preflightPaidDestinations,
 } from "@/server/v1/launch";
+import { preflightMessagingDestinations } from "@/server/v1/messaging-launch";
 
 const schema = z.object({ workspaceId: z.string().uuid() });
 
@@ -29,11 +30,11 @@ export async function POST(
       "marketer",
     ]);
     const { plan } = await loadApprovedCampaign(input.workspaceId, id);
-    const destinations = await preflightPaidDestinations(
-      input.workspaceId,
-      plan,
-    );
-    const failed = destinations.flatMap((destination) =>
+    const [destinations, messaging] = await Promise.all([
+      preflightPaidDestinations(input.workspaceId, plan),
+      preflightMessagingDestinations(input.workspaceId, plan),
+    ]);
+    const failed = [...destinations, ...messaging].flatMap((destination) =>
       destination.errors.map((error) => ({
         ...error,
         field: error.field
@@ -51,16 +52,21 @@ export async function POST(
         },
         { status: 409 },
       );
+    const admin = getSupabaseAdmin();
+    const accountIds = [...new Set(plan.content.map((item) => item.accountId).filter((value): value is string => Boolean(value)))];
+    const { data: allAccounts } = accountIds.length
+      ? await admin.from("provider_accounts").select("id,name,provider_key,selected").eq("workspace_id", input.workspaceId).in("id", accountIds)
+      : { data: [] };
+    if ((allAccounts ?? []).length !== accountIds.length || (allAccounts ?? []).some((account) => !account.selected))
+      return Response.json({ ok: false, errors: [{ code: "destination_changed", message: "A selected destination account changed after approval. Review the campaign again.", recoverable: true }], operationId, auditEventId }, { status: 409 });
     const summary = {
       campaignId: id,
       campaignName: plan.name,
       planHash: await campaignPlanHash(plan),
-      accounts: destinations.map((destination) => ({
-        channel: destination.channel,
-        provider: destination.provider,
-        accountId: destination.accountId,
-        accountName: destination.accountName,
-      })),
+      accounts: plan.content.map((item) => {
+        const account = (allAccounts ?? []).find((entry) => entry.id === item.accountId)!;
+        return { channel: item.channel, provider: account.provider_key, accountId: account.id, accountName: account.name };
+      }),
       budget: {
         dailyCents: plan.dailyBudgetCents,
         lifetimeCents: plan.lifetimeBudgetCents,
@@ -71,8 +77,12 @@ export async function POST(
       destinations: [
         ...new Set(plan.content.map((item) => item.destinationUrl)),
       ],
+      messaging: messaging.map((destination) => ({
+        channel: destination.channel,
+        audienceId: destination.audienceId,
+        eligibleRecipients: destination.eligibleRecipients,
+      })),
     };
-    const admin = getSupabaseAdmin();
     const { error: operationError } = await admin
       .from("operations")
       .insert({

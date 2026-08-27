@@ -44,6 +44,7 @@ import {
   type ProviderKey,
 } from "@/lib/v1/domain";
 import { campaignTemplates, getTemplate } from "@/lib/v1/templates";
+import { buildCampaignEmailHtml, smsSegmentCount } from "@/lib/v1/messaging";
 
 type Workspace = {
   id: string;
@@ -138,6 +139,32 @@ type MetricRow = {
   period_end: string;
   currency: string | null;
   metrics: Record<string, number>;
+};
+type MessagingAudience = {
+  id: string;
+  name: string;
+  description: string | null;
+  totalContacts: number;
+  eligible: { email: number; sms: number };
+};
+type MessagingSettings = {
+  legal_business_name: string;
+  physical_address: string;
+  default_country: "US" | "CA";
+  quiet_hours_start: string;
+  quiet_hours_end: string;
+};
+type MessageBatchRow = {
+  id: string;
+  campaign_id: string;
+  channel: "email" | "sms";
+  status: string;
+  eligible_count: number;
+  accepted_count: number;
+  delivered_count: number;
+  failed_count: number;
+  suppressed_count: number;
+  scheduled_for: string;
 };
 
 async function loadCanvasImage(url: string) {
@@ -367,6 +394,9 @@ export function GrowthOSApp({
   const [readiness, setReadiness] = useState<ProviderReadiness[]>([]);
   const [platformAdmin, setPlatformAdmin] = useState(false);
   const [metrics, setMetrics] = useState<MetricRow[]>([]);
+  const [messagingAudiences, setMessagingAudiences] = useState<MessagingAudience[]>([]);
+  const [messagingSettings, setMessagingSettings] = useState<MessagingSettings | null>(null);
+  const [messageBatches, setMessageBatches] = useState<MessageBatchRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -411,6 +441,8 @@ export function GrowthOSApp({
       accountsResult,
       metricsResult,
       readinessResponse,
+      messagingResponse,
+      messageBatchesResult,
     ] = await Promise.all([
       supabase
         .from("campaigns")
@@ -449,6 +481,8 @@ export function GrowthOSApp({
         .order("period_end", { ascending: false })
         .limit(100),
       authenticatedFetch("/api/v1/providers/readiness"),
+      authenticatedFetch(`/api/v1/messaging/audiences?workspaceId=${joined.id}`),
+      supabase.from("message_batches").select("id,campaign_id,channel,status,eligible_count,accepted_count,delivered_count,failed_count,suppressed_count,scheduled_for").eq("workspace_id", joined.id).order("scheduled_for", { ascending: false }).limit(100),
     ]);
     const firstError = [
       campaignResult.error,
@@ -457,6 +491,7 @@ export function GrowthOSApp({
       connectionsResult.error,
       accountsResult.error,
       metricsResult.error,
+      messageBatchesResult.error,
     ].find(Boolean);
     if (firstError) setLoadError(firstError.message);
     setCampaigns((campaignResult.data ?? []) as Campaign[]);
@@ -474,12 +509,18 @@ export function GrowthOSApp({
     setConnections((connectionsResult.data ?? []) as ProviderConnection[]);
     setAccounts((accountsResult.data ?? []) as ProviderAccount[]);
     setMetrics((metricsResult.data ?? []) as MetricRow[]);
+    setMessageBatches((messageBatchesResult.data ?? []) as MessageBatchRow[]);
     if (readinessResponse.ok) {
       const result = (await readinessResponse.json()) as {
         ok: boolean;
         data?: ProviderReadiness[];
       };
       setReadiness(result.data ?? []);
+    }
+    if (messagingResponse.ok) {
+      const result = (await messagingResponse.json()) as { ok: boolean; data?: { lists: MessagingAudience[]; settings: MessagingSettings | null } };
+      setMessagingAudiences(result.data?.lists ?? []);
+      setMessagingSettings(result.data?.settings ?? null);
     }
     if (["owner", "admin"].includes(membership.role)) {
       const adminResponse = await authenticatedFetch("/api/v1/admin/providers");
@@ -509,6 +550,8 @@ export function GrowthOSApp({
           products={products}
           media={media}
           accounts={accounts.filter((account) => account.selected)}
+          messagingAudiences={messagingAudiences}
+          messagingSettings={messagingSettings}
           onCreated={(id) => window.location.assign(`/app/campaigns/${id}`)}
         />
       );
@@ -527,6 +570,7 @@ export function GrowthOSApp({
           metrics={metrics.filter(
             (metric) => metric.campaign_id === campaign.id,
           )}
+          messageBatches={messageBatches.filter((batch) => batch.campaign_id === campaign.id)}
           onRefresh={loadWorkspace}
         />
       ) : (
@@ -541,7 +585,7 @@ export function GrowthOSApp({
     if (initialPath.startsWith("/app/calendar"))
       return <CalendarPage campaigns={campaigns} />;
     if (initialPath.startsWith("/app/results"))
-      return <ResultsPage campaigns={campaigns} metrics={metrics} />;
+      return <ResultsPage campaigns={campaigns} metrics={metrics} messageBatches={messageBatches} />;
     if (initialPath.startsWith("/app/manage/brand"))
       return (
         <BrandAssetsPage
@@ -551,6 +595,8 @@ export function GrowthOSApp({
           onRefresh={loadWorkspace}
         />
       );
+    if (initialPath.startsWith("/app/manage/contacts"))
+      return <ContactsConsentPage workspace={workspace} audiences={messagingAudiences} settings={messagingSettings} onRefresh={loadWorkspace} />;
     if (initialPath.startsWith("/app/manage/platform"))
       return <PlatformReadinessPage />;
     const connectionMatch = initialPath.match(
@@ -1163,12 +1209,16 @@ function CampaignCreator({
   products,
   media,
   accounts,
+  messagingAudiences,
+  messagingSettings,
   onCreated,
 }: {
   workspace: Workspace;
   products: ProductService[];
   media: MediaAsset[];
   accounts: ProviderAccount[];
+  messagingAudiences: MessagingAudience[];
+  messagingSettings: MessagingSettings | null;
   onCreated: (id: string) => void;
 }) {
   const [mode, setMode] = useState<"template" | "ai">("template");
@@ -1198,6 +1248,7 @@ function CampaignCreator({
         (account) => account.provider_key === "tiktok_organic",
       )?.capabilities.commentsDisabled,
   );
+  const [messagingAudienceId, setMessagingAudienceId] = useState(messagingAudiences[0]?.id ?? "");
   const [advanced, setAdvanced] = useState(false);
   const [plan, setPlan] = useState<CampaignPlan | null>(null);
   const [renderedMedia, setRenderedMedia] = useState<MediaAsset[]>([]);
@@ -1208,6 +1259,7 @@ function CampaignCreator({
   );
   const selectedTemplate = getTemplate(templateId);
   const product = products.find((item) => item.id === productId);
+  const messagingAudience = messagingAudiences.find((item) => item.id === messagingAudienceId);
   const productMedia = media.filter(
     (item) =>
       item.product_service_id === productId &&
@@ -1241,8 +1293,12 @@ function CampaignCreator({
                 ? "tiktok_organic"
                 : channel === "reddit_ads"
                   ? "reddit_ads"
-                  : channel === "linkedin"
-                    ? "linkedin_pages"
+              : channel === "linkedin"
+                ? "linkedin_pages"
+                : channel === "email"
+                  ? "sendgrid_email"
+                  : channel === "sms"
+                    ? "twilio_messaging"
                     : "chatgpt_ads";
       return (
         accounts.find(
@@ -1262,6 +1318,10 @@ function CampaignCreator({
                     ? "instagram_professional"
                     : channel === "tiktok"
                       ? "creator"
+                      : channel === "email"
+                        ? "email_sender"
+                        : channel === "sms"
+                          ? "messaging_service"
                       : "organization_page"),
         )?.id ??
         null
@@ -1315,11 +1375,33 @@ function CampaignCreator({
             unresolvedFields.push("Choose at least one target country");
           if (asset.channel === "tiktok" && !tiktokPrivacy)
             unresolvedFields.push("Choose a current creator privacy option");
+          if (["email", "sms"].includes(asset.channel) && !messagingAudience)
+            unresolvedFields.push("Choose a consented audience");
+          if (["email", "sms"].includes(asset.channel) && !messagingSettings)
+            unresolvedFields.push("Complete the legal sender identity");
           const headline = asset.exampleHeadline.replace(
             /your/gi,
             product.name,
           );
           const body = `${asset.exampleBody} ${offer.trim()}`;
+          const messageBody = asset.channel === "sms"
+            ? `${body} ${landingUrl} Reply STOP to unsubscribe.`.slice(0, 480)
+            : body;
+          const senderAccount = accounts.find((entry) => entry.id === accountId);
+          const messaging = messagingAudience && messagingSettings && (asset.channel === "email" || asset.channel === "sms")
+            ? {
+                audienceId: messagingAudience.id,
+                estimatedRecipients: messagingAudience.eligible[asset.channel],
+                fromName: asset.channel === "email" ? String(senderAccount?.capabilities.fromName ?? messagingSettings.legal_business_name) : messagingSettings.legal_business_name,
+                fromAddress: asset.channel === "email" ? String(senderAccount?.capabilities.fromAddress ?? "") || null : null,
+                replyToAddress: asset.channel === "email" ? String(senderAccount?.capabilities.replyToAddress ?? "") || null : null,
+                subject: asset.channel === "email" ? headline : null,
+                preheader: asset.channel === "email" ? body.slice(0, 150) : null,
+                html: asset.channel === "email" ? buildCampaignEmailHtml({ businessName: messagingSettings.legal_business_name, preheader: body.slice(0, 150), headline, body, cta: asset.cta, destinationUrl: landingUrl, physicalAddress: messagingSettings.physical_address, includeHeroImage: Boolean(mediaId) }) : null,
+                physicalAddress: asset.channel === "email" ? messagingSettings.physical_address : null,
+                smsOptOutText: asset.channel === "sms" ? "Reply STOP to unsubscribe." : null,
+              }
+            : null;
           const slides =
             asset.slideCount > 1
               ? Array.from({ length: asset.slideCount }, (_, index) => ({
@@ -1341,7 +1423,7 @@ function CampaignCreator({
             channel: asset.channel,
             format: asset.format,
             headline,
-            body,
+            body: messageBody,
             cta: asset.cta,
             destinationUrl: landingUrl,
             carouselSlides: slides,
@@ -1376,9 +1458,10 @@ function CampaignCreator({
                     commentsEnabled: tiktokCommentsEnabled,
                   }
                 : null,
+            messaging,
             scheduledFor: null,
             unresolvedFields,
-            scene: mediaId
+            scene: mediaId && asset.channel !== "sms"
               ? {
                   width: asset.aspectRatio === "1.91:1" ? 1200 : 1080,
                   height: asset.aspectRatio === "1.91:1" ? 628 : 1080,
@@ -1436,7 +1519,7 @@ function CampaignCreator({
     const created: MediaAsset[] = [];
     const content: CampaignPlan["content"] = [];
     for (const item of draft.content) {
-      if (item.channel === "google_search") {
+      if (item.channel === "google_search" || item.channel === "sms" || item.channel === "email") {
         content.push(item);
         continue;
       }
@@ -1545,6 +1628,15 @@ function CampaignCreator({
             privacy: tiktokPrivacy || null,
             commentsEnabled: tiktokCommentsEnabled,
           },
+          messaging: messagingAudience && messagingSettings ? {
+            audienceId: messagingAudience.id,
+            eligible: messagingAudience.eligible,
+            legalBusinessName: messagingSettings.legal_business_name,
+            physicalAddress: messagingSettings.physical_address,
+            fromName: String(accounts.find((entry) => entry.id === accountForChannel("email"))?.capabilities.fromName ?? messagingSettings.legal_business_name),
+            fromAddress: String(accounts.find((entry) => entry.id === accountForChannel("email"))?.capabilities.fromAddress ?? "") || null,
+            replyToAddress: String(accounts.find((entry) => entry.id === accountForChannel("email"))?.capabilities.replyToAddress ?? "") || null,
+          } : null,
         }),
       });
       const result = (await response.json()) as {
@@ -1833,6 +1925,31 @@ function CampaignCreator({
                   </label>
                 ))}
               </fieldset>
+              {channels.some((channel) => channel === "email" || channel === "sms") && (
+                <fieldset className="span-2 tiktok-publishing-options">
+                  <legend>Email & SMS audience</legend>
+                  {messagingAudiences.length ? (
+                    <label>
+                      Consented contact list
+                      <select value={messagingAudienceId} onChange={(event) => setMessagingAudienceId(event.target.value)} required>
+                        <option value="">Choose a list</option>
+                        {messagingAudiences.map((audience) => (
+                          <option value={audience.id} key={audience.id}>
+                            {audience.name} · {audience.eligible.email} email · {audience.eligible.sms} SMS
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ) : (
+                    <div className="notice warning">
+                      Import contacts with explicit consent before adding email or SMS. <a href="/app/manage/contacts">Manage contacts</a>
+                    </div>
+                  )}
+                  {!messagingSettings && (
+                    <p>Add your legal sender name, physical address, and quiet hours under Contacts & consent.</p>
+                  )}
+                </fieldset>
+              )}
               {channels.includes("tiktok") && (
                 <fieldset className="span-2 tiktok-publishing-options">
                   <legend>TikTok publishing consent</legend>
@@ -2154,6 +2271,9 @@ function ChannelPreview({
 }) {
   const asset = media.find((entry) => item.mediaIds.includes(entry.id));
   const isSearch = item.channel === "google_search";
+  const isEmail = item.channel === "email";
+  const isSms = item.channel === "sms";
+  const smsInfo = isSms ? smsSegmentCount(item.body) : null;
   return (
     <article className="channel-review">
       <header>
@@ -2190,8 +2310,26 @@ function ChannelPreview({
         </div>
       </header>
       <div className="preview-and-details">
-        <div className={`publication-preview ${isSearch ? "search-ad" : ""}`}>
-          {isSearch ? (
+        <div className={`publication-preview ${isSearch ? "search-ad" : isEmail ? "email-preview" : isSms ? "sms-preview" : ""}`}>
+          {isEmail ? (
+            <div className="email-client-preview">
+              <div className="email-inbox-line"><b>From</b> {item.messaging?.fromName ?? "Sender"} &lt;{item.messaging?.fromAddress ?? "verified sender required"}&gt;</div>
+              <div className="email-inbox-line"><b>Subject</b> {item.messaging?.subject ?? item.headline}</div>
+              <div className="email-message">
+                {asset?.url ? <img src={asset.url} alt="Selected campaign product or service" /> : <div className="asset-placeholder">Real image required</div>}
+                <h4>{item.headline}</h4>
+                <p>{item.body}</p>
+                <a href={item.destinationUrl}>{item.cta}</a>
+                <small>{item.messaging?.physicalAddress}<br />Unsubscribe</small>
+              </div>
+            </div>
+          ) : isSms ? (
+            <div className="phone-message-preview">
+              <div className="phone-top">SMS preview</div>
+              <div className="message-bubble">{item.body}</div>
+              <small>{smsInfo?.characters} characters · {smsInfo?.segments} segment{smsInfo?.segments === 1 ? "" : "s"} · {smsInfo?.encoding}</small>
+            </div>
+          ) : isSearch ? (
             <>
               <small>Sponsored · {new URL(item.destinationUrl).hostname}</small>
               <h4>{(item.searchHeadlines ?? [item.headline]).join(" | ")}</h4>
@@ -2252,6 +2390,12 @@ function ChannelPreview({
             <dt>Account</dt>
             <dd>{account?.name ?? "Not selected"}</dd>
           </div>
+          {(isEmail || isSms) && (
+            <div>
+              <dt>Audience</dt>
+              <dd>{item.messaging?.estimatedRecipients ?? 0} eligible recipient{item.messaging?.estimatedRecipients === 1 ? "" : "s"}</dd>
+            </div>
+          )}
           <div>
             <dt>Destination</dt>
             <dd>
@@ -2444,7 +2588,7 @@ function ContentEditor({
       new URL(destinationUrl);
       let nextMediaIds = item.mediaIds;
       let nextSlides = slides;
-      if (item.channel !== "google_search") {
+      if (!["google_search", "email", "sms"].includes(item.channel)) {
         const subjectId = item.scene?.layers.find(
           (layer) => layer.kind === "subject",
         )?.mediaId;
@@ -2536,6 +2680,25 @@ function ContentEditor({
                 commentsEnabled: tiktokCommentsEnabled,
               }
             : item.publishingOptions,
+        messaging: item.messaging
+          ? {
+              ...item.messaging,
+              subject: item.channel === "email" ? headline.trim() : item.messaging.subject,
+              preheader: item.channel === "email" ? body.trim().slice(0, 150) : item.messaging.preheader,
+              html: item.channel === "email" && item.messaging.physicalAddress
+                ? buildCampaignEmailHtml({
+                    businessName: item.messaging.fromName ?? workspace.name,
+                    preheader: body.trim().slice(0, 150),
+                    headline: headline.trim(),
+                    body: body.trim(),
+                    cta: cta.trim(),
+                    destinationUrl,
+                    physicalAddress: item.messaging.physicalAddress,
+                    includeHeroImage: nextMediaIds.length > 0,
+                  })
+                : item.messaging.html,
+            }
+          : null,
         scene: item.scene
           ? {
               ...item.scene,
@@ -2965,6 +3128,7 @@ function CampaignWorkspace({
   media,
   accounts,
   metrics,
+  messageBatches,
   onRefresh,
 }: {
   campaign: Campaign;
@@ -2973,6 +3137,7 @@ function CampaignWorkspace({
   media: MediaAsset[];
   accounts: ProviderAccount[];
   metrics: MetricRow[];
+  messageBatches: MessageBatchRow[];
   onRefresh: () => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -3070,7 +3235,7 @@ function CampaignWorkspace({
         />
       )}
       {tab === "results" && (
-        <CampaignResultsTab campaign={campaign} metrics={metrics} />
+        <CampaignResultsTab campaign={campaign} metrics={metrics} messageBatches={messageBatches} />
       )}
       {editing && (
         <ContentEditor
@@ -3176,11 +3341,13 @@ function DeliveryTab({
       startsAt: string;
       endsAt: string | null;
       destinations: string[];
+      messaging?: Array<{ channel: ChannelKey; audienceId: string; eligibleRecipients: number }>;
     };
   };
-  const paid = campaign.plan.content.filter((item) =>
-    PAID_CHANNELS.has(item.channel),
+  const deliveryItems = campaign.plan.content.filter((item) =>
+    PAID_CHANNELS.has(item.channel) || item.channel === "email" || item.channel === "sms",
   );
+  const hasPaid = campaign.plan.content.some((item) => PAID_CHANNELS.has(item.channel));
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -3253,11 +3420,10 @@ function DeliveryTab({
       <section className="launch-safety">
         <ShieldCheck size={22} />
         <div>
-          <h2>Paid resources are created paused</h2>
+          <h2>Every destination is preflighted before launch</h2>
           <p>
-            GrowthOS validates every destination first. Launch always requires a
-            final confirmation with exact accounts, budgets, dates, currency,
-            and URLs.
+            Paid resources are created paused. Email and SMS require current consent,
+            suppression, sender, and compliance checks before they enter the delivery queue.
           </p>
         </div>
       </section>
@@ -3291,7 +3457,7 @@ function DeliveryTab({
             </button>
           )}
         </div>
-        {paid.map((item) => (
+        {deliveryItems.map((item) => (
           <div className="delivery-row" key={item.id}>
             <div className="channel-mark">
               {channelLabels[item.channel].slice(0, 2).toUpperCase()}
@@ -3312,10 +3478,10 @@ function DeliveryTab({
             />
           </div>
         ))}
-        {!paid.length && (
+        {!deliveryItems.length && (
           <CompactEmpty
             icon={<Megaphone size={20} />}
-            text="This campaign has no paid destinations."
+            text="This campaign has no paid or messaging destinations."
           />
         )}
       </section>
@@ -3337,14 +3503,11 @@ function DeliveryTab({
                 </dd>
               </div>
             ))}
-            <div>
+            {hasPaid && <div>
               <dt>Budget</dt>
-              <dd>
-                {proposal.summary.budget.dailyCents
-                  ? `${proposal.summary.budget.currency} ${(proposal.summary.budget.dailyCents / 100).toFixed(2)} per day`
-                  : `${proposal.summary.budget.currency} ${((proposal.summary.budget.lifetimeCents ?? 0) / 100).toFixed(2)} lifetime`}
-              </dd>
-            </div>
+              <dd>{proposal.summary.budget.dailyCents ? `${proposal.summary.budget.currency} ${(proposal.summary.budget.dailyCents / 100).toFixed(2)} per day` : `${proposal.summary.budget.currency} ${((proposal.summary.budget.lifetimeCents ?? 0) / 100).toFixed(2)} lifetime`}</dd>
+            </div>}
+            {(proposal.summary.messaging ?? []).map((message) => <div key={`${message.channel}-${message.audienceId}`}><dt>{channelLabels[message.channel]} audience</dt><dd>{message.eligibleRecipients} currently eligible recipients</dd></div>)}
             <div>
               <dt>Dates</dt>
               <dd>
@@ -3366,8 +3529,8 @@ function DeliveryTab({
               onChange={(event) => setConfirmed(event.target.checked)}
             />
             <span>
-              I confirm these accounts, dates, destinations, and the exact{" "}
-              {proposal.summary.budget.currency} budget.
+              I confirm these accounts, dates, destinations, recipient counts
+              {hasPaid ? `, and the exact ${proposal.summary.budget.currency} budget` : ""}.
             </span>
           </label>
           <button
@@ -3390,11 +3553,13 @@ function DeliveryTab({
 function CampaignResultsTab({
   campaign,
   metrics,
+  messageBatches,
 }: {
   campaign: Campaign;
   metrics: MetricRow[];
+  messageBatches: MessageBatchRow[];
 }) {
-  if (metrics.length)
+  if (metrics.length || messageBatches.length)
     return (
       <section className="panel result-sources">
         <div className="panel-heading">
@@ -3403,6 +3568,14 @@ function CampaignResultsTab({
             <p>Each row keeps its native source and attribution label.</p>
           </div>
         </div>
+        {messageBatches.map((batch) => (
+          <div key={batch.id}>
+            <div><strong>{batch.channel === "email" ? "Twilio SendGrid" : "Twilio Messaging"}</strong><small>{batch.status}</small></div>
+            <span>{batch.delivered_count.toLocaleString()} delivered</span>
+            <span>{batch.failed_count.toLocaleString()} failed · {batch.suppressed_count.toLocaleString()} suppressed</span>
+            <span>{new Date(batch.scheduled_for).toLocaleDateString()}</span>
+          </div>
+        ))}
         {metrics.map((row) => (
           <div key={row.id}>
             <div>
@@ -3580,9 +3753,11 @@ function MonthCalendar({ campaigns }: { campaigns: Campaign[] }) {
 function ResultsPage({
   campaigns,
   metrics,
+  messageBatches,
 }: {
   campaigns: Campaign[];
   metrics: MetricRow[];
+  messageBatches: MessageBatchRow[];
 }) {
   const live = campaigns.filter((c) =>
     ["live", "completed"].includes(c.status),
@@ -3634,9 +3809,9 @@ function ResultsPage({
           <small>Provider status</small>
         </div>
         <div>
-          <span>Impressions</span>
-          <b>{totals.impressions.toLocaleString()}</b>
-          <small>Provider-reported</small>
+          <span>Delivered messages</span>
+          <b>{messageBatches.reduce((total, batch) => total + batch.delivered_count, 0).toLocaleString()}</b>
+          <small>Twilio &amp; SendGrid callbacks</small>
         </div>
         <div>
           <span>Clicks</span>
@@ -3644,11 +3819,19 @@ function ResultsPage({
           <small>Latest provider snapshots</small>
         </div>
       </section>
-      {latest.length ? (
+      {latest.length || messageBatches.length ? (
         <section className="panel result-sources">
           <div className="panel-heading">
             <h2>Source details</h2>
           </div>
+          {messageBatches.slice(0, 12).map((batch) => (
+            <div key={batch.id}>
+              <div><strong>{batch.channel === "email" ? "Twilio SendGrid" : "Twilio Messaging"}</strong><small>{batch.status}</small></div>
+              <span>{batch.delivered_count.toLocaleString()} delivered</span>
+              <span>{batch.failed_count.toLocaleString()} failed</span>
+              <span>{batch.suppressed_count.toLocaleString()} suppressed</span>
+            </div>
+          ))}
           {latest.slice(0, 12).map((row) => (
             <div key={row.id}>
               <div>
@@ -3696,6 +3879,108 @@ function ResultsPage({
   );
 }
 
+function parseCsvRows(value: string) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index];
+    if (character === '"' && quoted && value[index + 1] === '"') { field += '"'; index += 1; }
+    else if (character === '"') quoted = !quoted;
+    else if (character === "," && !quoted) { row.push(field.trim()); field = ""; }
+    else if ((character === "\n" || character === "\r") && !quoted) {
+      if (character === "\r" && value[index + 1] === "\n") index += 1;
+      row.push(field.trim()); field = "";
+      if (row.some(Boolean)) rows.push(row);
+      row = [];
+    } else field += character;
+  }
+  row.push(field.trim());
+  if (row.some(Boolean)) rows.push(row);
+  return rows;
+}
+
+function ContactsConsentPage({ workspace, audiences, settings, onRefresh }: { workspace: Workspace; audiences: MessagingAudience[]; settings: MessagingSettings | null; onRefresh: () => Promise<void> }) {
+  const [sender, setSender] = useState({
+    legalBusinessName: settings?.legal_business_name ?? workspace.name,
+    physicalAddress: settings?.physical_address ?? "",
+    defaultCountry: settings?.default_country ?? (workspace.currency === "CAD" ? "CA" : "US") as "US" | "CA",
+    quietHoursStart: String(settings?.quiet_hours_start ?? "20:00").slice(0, 5),
+    quietHoursEnd: String(settings?.quiet_hours_end ?? "09:00").slice(0, 5),
+  });
+  const [listName, setListName] = useState("");
+  const [csv, setCsv] = useState("");
+  const [certified, setCertified] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  async function saveSender(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    try {
+      const response = await authenticatedFetch("/api/v1/messaging/settings", { method: "POST", body: JSON.stringify({ workspaceId: workspace.id, ...sender }) });
+      const result = await response.json() as { ok: boolean; errors?: Array<{ message: string }> };
+      if (!result.ok) throw new Error(result.errors?.[0]?.message ?? "Sender settings could not be saved.");
+      setMessage("Sender identity and quiet hours saved."); await onRefresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Sender settings could not be saved."); }
+    finally { setBusy(false); }
+  }
+  async function importContacts(event: React.FormEvent) {
+    event.preventDefault(); setBusy(true); setError(""); setMessage("");
+    try {
+      const rows = parseCsvRows(csv);
+      const headers = rows.shift()?.map((header) => header.toLowerCase()) ?? [];
+      const required = ["consent_channels", "consent_source", "consent_timestamp"];
+      if (!required.every((header) => headers.includes(header))) throw new Error(`CSV must include ${required.join(", ")}.`);
+      const at = (row: string[], key: string) => row[headers.indexOf(key)] || null;
+      const contacts = rows.map((row) => ({
+        email: at(row, "email"), phone: at(row, "phone"), firstName: at(row, "first_name"), lastName: at(row, "last_name"),
+        country: at(row, "country") || null, timezone: at(row, "timezone") || null, attributes: {}, explicitConsent: true,
+        consentChannels: String(at(row, "consent_channels") ?? "").split("|").map((channel) => channel.trim().toLowerCase()).filter(Boolean),
+        consentSource: at(row, "consent_source"), consentTimestamp: at(row, "consent_timestamp"), consentProof: { importedFile: true },
+      }));
+      const response = await authenticatedFetch("/api/v1/contacts/import", { method: "POST", body: JSON.stringify({ workspaceId: workspace.id, listName, contacts, certification: certified }) });
+      const result = await response.json() as { ok: boolean; data?: { importedCount?: number }; errors?: Array<{ message: string }> };
+      if (!result.ok) throw new Error(result.errors?.map((entry) => entry.message).join(" · ") ?? "Import failed.");
+      setMessage(`${result.data?.importedCount ?? contacts.length} contact rows imported with their consent records.`); setCsv(""); setListName(""); setCertified(false); await onRefresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Import failed."); }
+    finally { setBusy(false); }
+  }
+  return <>
+    <a className="back-link" href="/app/manage"><ArrowLeft size={17} /> Manage</a>
+    <PageHeader title="Contacts & Consent" detail="Only recipients with explicit, recorded channel consent can enter a campaign." />
+    {error && <div className="notice error"><CircleAlert size={18} />{error}</div>}
+    {message && <div className="notice info"><Check size={18} />{message}</div>}
+    <div className="home-grid">
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Legal sender identity</h2><p>Required in marketing email and used for compliance checks.</p></div></div>
+        <form className="form-grid" onSubmit={saveSender}>
+          <label className="span-2">Legal business name<input value={sender.legalBusinessName} onChange={(event) => setSender({ ...sender, legalBusinessName: event.target.value })} required /></label>
+          <label className="span-2">Physical mailing address<textarea value={sender.physicalAddress} onChange={(event) => setSender({ ...sender, physicalAddress: event.target.value })} required rows={3} /></label>
+          <label>Default country<select value={sender.defaultCountry} onChange={(event) => setSender({ ...sender, defaultCountry: event.target.value as "US" | "CA" })}><option value="US">United States</option><option value="CA">Canada</option></select></label>
+          <div />
+          <label>Quiet hours start<input type="time" value={sender.quietHoursStart} onChange={(event) => setSender({ ...sender, quietHoursStart: event.target.value })} /></label>
+          <label>Quiet hours end<input type="time" value={sender.quietHoursEnd} onChange={(event) => setSender({ ...sender, quietHoursEnd: event.target.value })} /></label>
+          <button className="button primary span-2" disabled={busy}>Save sender identity</button>
+        </form>
+      </section>
+      <section className="panel">
+        <div className="panel-heading"><div><h2>Audiences</h2><p>Counts exclude unsubscribed and suppressed contacts.</p></div></div>
+        {audiences.length ? audiences.map((audience) => <div className="selected-account" key={audience.id}><Users size={16} /><div><b>{audience.name}</b><p>{audience.totalContacts} contacts · {audience.eligible.email} email eligible · {audience.eligible.sms} SMS eligible</p></div></div>) : <CompactEmpty icon={<Users size={20} />} text="No contact lists yet" />}
+      </section>
+    </div>
+    <section className="panel">
+      <div className="panel-heading"><div><h2>Import consented contacts</h2><p>CSV columns: email, phone, first_name, last_name, country, timezone, consent_channels, consent_source, consent_timestamp. Use email|sms for both channels.</p></div></div>
+      <form className="form-grid" onSubmit={importContacts}>
+        <label className="span-2">List name<input value={listName} onChange={(event) => setListName(event.target.value)} placeholder="Holiday customers" required /></label>
+        <label className="span-2">CSV file<input type="file" accept=".csv,text/csv" onChange={async (event) => setCsv(await event.target.files?.[0]?.text() ?? "")} required /></label>
+        <label className="span-2 inline-check"><input type="checkbox" checked={certified} onChange={(event) => setCertified(event.target.checked)} required />I certify that these people gave this business explicit permission for every selected channel. This is not a purchased or scraped list.</label>
+        <button className="button primary span-2" disabled={busy || !certified || !csv || !listName}>Import contacts and consent</button>
+      </form>
+    </section>
+  </>;
+}
+
 function ManagePage({
   products,
   media,
@@ -3723,6 +4008,13 @@ function ManagePage({
       title: "Connections",
       detail: `${connections.length} authorized · ${accounts.filter((a) => a.selected).length} selected accounts`,
       action: "Manage destinations",
+    },
+    {
+      href: "/app/manage/contacts",
+      icon: Users,
+      title: "Contacts & Consent",
+      detail: "Lists, consent proof, sender identity, and suppressions",
+      action: "Manage audiences",
     },
     {
       href: "/app/manage/team",
@@ -4545,6 +4837,8 @@ function ConnectionsPage({
                   href={
                     provider.provider === "chatgpt_ads"
                       ? `/app/manage/connections/chatgpt_ads`
+                      : ["twilio_messaging", "sendgrid_email"].includes(provider.provider)
+                        ? `/app/manage/connections/${provider.provider}`
                       : `/api/v1/oauth/${provider.provider}/start?workspaceId=${workspace.id}`
                   }
                 >
@@ -4607,6 +4901,8 @@ function ConnectionAccountPage({
     );
   });
   const [apiKey, setApiKey] = useState("");
+  const [twilio, setTwilio] = useState({ accountSid: "", apiKeySid: "", apiKeySecret: "", authToken: "", messagingServiceSid: "" });
+  const [sendgrid, setSendgrid] = useState({ apiKey: "", fromName: workspace.name, fromAddress: "", replyToAddress: "", unsubscribeGroupId: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const label = providerCapabilities[provider]?.label ?? provider;
@@ -4672,6 +4968,20 @@ function ConnectionAccountPage({
     } finally {
       setBusy(false);
     }
+  }
+  async function connectMessagingProvider() {
+    setBusy(true); setError("");
+    try {
+      const isTwilio = provider === "twilio_messaging";
+      const response = await authenticatedFetch(isTwilio ? "/api/v1/connections/twilio" : "/api/v1/connections/sendgrid", {
+        method: "POST",
+        body: JSON.stringify(isTwilio ? { workspaceId: workspace.id, ...twilio } : { workspaceId: workspace.id, ...sendgrid, replyToAddress: sendgrid.replyToAddress || null, unsubscribeGroupId: Number(sendgrid.unsubscribeGroupId) }),
+      });
+      const result = await response.json() as { ok: boolean; errors?: Array<{ message: string }> };
+      if (!result.ok) throw new Error(result.errors?.map((entry) => entry.message).join(" · ") ?? `${label} connection failed.`);
+      await onRefresh(); window.location.assign("/app/manage/connections");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : `${label} connection failed.`); }
+    finally { setBusy(false); }
   }
   async function disconnect() {
     if (!connectionId) return;
@@ -4751,6 +5061,29 @@ function ConnectionAccountPage({
         </section>
       </>
     );
+  if ((provider === "twilio_messaging" || provider === "sendgrid_email") && !accounts.length)
+    return <>
+      <a className="back-link" href="/app/manage/connections"><ArrowLeft size={17} /> Connections</a>
+      <PageHeader title={`Connect ${label}`} detail={provider === "twilio_messaging" ? "Use restricted Twilio API credentials. GrowthOS verifies the Messaging Service and A2P status without receiving your Twilio password." : "Use a restricted SendGrid key. GrowthOS verifies the sender, domain, unsubscribe group, and signed Event Webhook."} />
+      {error && <div className="notice error"><CircleAlert size={18} />{error}</div>}
+      <section className="panel key-connect"><div className="panel-heading"><div><h2>{provider === "twilio_messaging" ? "Twilio Messaging Service" : "SendGrid sending identity"}</h2><p>Credentials are encrypted server-side and never returned to the browser.</p></div></div>
+        {provider === "twilio_messaging" ? <div className="form-grid">
+          <label>Account SID<input autoComplete="off" value={twilio.accountSid} onChange={(event) => setTwilio({ ...twilio, accountSid: event.target.value })} placeholder="AC…" /></label>
+          <label>Messaging Service SID<input autoComplete="off" value={twilio.messagingServiceSid} onChange={(event) => setTwilio({ ...twilio, messagingServiceSid: event.target.value })} placeholder="MG…" /></label>
+          <label>API Key SID<input autoComplete="off" value={twilio.apiKeySid} onChange={(event) => setTwilio({ ...twilio, apiKeySid: event.target.value })} placeholder="SK…" /></label>
+          <label>API Key secret<input type="password" autoComplete="new-password" value={twilio.apiKeySecret} onChange={(event) => setTwilio({ ...twilio, apiKeySecret: event.target.value })} /></label>
+          <label className="span-2">Auth Token <small>Used only to validate Twilio-signed callbacks.</small><input type="password" autoComplete="new-password" value={twilio.authToken} onChange={(event) => setTwilio({ ...twilio, authToken: event.target.value })} /></label>
+        </div> : <div className="form-grid">
+          <label className="span-2">Restricted SendGrid API key<input type="password" autoComplete="new-password" value={sendgrid.apiKey} onChange={(event) => setSendgrid({ ...sendgrid, apiKey: event.target.value })} /></label>
+          <label>From name<input value={sendgrid.fromName} onChange={(event) => setSendgrid({ ...sendgrid, fromName: event.target.value })} /></label>
+          <label>Verified From address<input type="email" value={sendgrid.fromAddress} onChange={(event) => setSendgrid({ ...sendgrid, fromAddress: event.target.value })} /></label>
+          <label>Reply-to address<input type="email" value={sendgrid.replyToAddress} onChange={(event) => setSendgrid({ ...sendgrid, replyToAddress: event.target.value })} /></label>
+          <label>Unsubscribe group ID<input type="number" min="1" value={sendgrid.unsubscribeGroupId} onChange={(event) => setSendgrid({ ...sendgrid, unsubscribeGroupId: event.target.value })} /></label>
+        </div>}
+        <button className="button primary" disabled={busy || !readiness?.ready} onClick={() => void connectMessagingProvider()}>{busy ? <Loader2 className="spin" size={18} /> : <ShieldCheck size={18} />} Verify and connect</button>
+        {!readiness?.ready && <p className="muted">{readiness?.reason ?? "This provider has not passed the platform readiness gate."}</p>}
+      </section>
+    </>;
   return (
     <>
       <a className="back-link" href="/app/manage/connections">
@@ -4779,6 +5112,9 @@ function ConnectionAccountPage({
           <CircleAlert size={18} />
           {error}
         </div>
+      )}
+      {provider === "twilio_messaging" && connectionId && (
+        <div className="notice info"><ShieldCheck size={18} /><div><strong>Inbound opt-out webhook</strong><p>Set the Messaging Service inbound request URL to <code>{`${process.env.NEXT_PUBLIC_APP_ORIGIN ?? ""}/api/v1/webhooks/twilio/${connectionId}`}</code>. GrowthOS verifies every Twilio signature before recording STOP.</p></div></div>
       )}
       <section className="panel account-list">
         {provider === "meta_business" &&

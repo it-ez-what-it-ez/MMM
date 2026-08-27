@@ -16,6 +16,8 @@ import {
 } from "@/server/v1/launch";
 import { loadProviderAccountContext } from "@/server/v1/provider-context";
 import { enqueueOrganicPublish } from "@/server/v1/queues";
+import { enqueueMessageBatch } from "@/server/v1/queues";
+import { messagingChannels, preflightMessagingDestinations } from "@/server/v1/messaging-launch";
 
 const schema = z.object({
   workspaceId: z.string().uuid(),
@@ -38,6 +40,7 @@ export async function POST(
   }> = [];
   const createdScheduleIds: string[] = [];
   const createdPublishJobIds: string[] = [];
+  const createdMessageBatchIds: string[] = [];
   let workspaceIdForCompensation = "";
   try {
     const user = await requireApiUser(request);
@@ -94,15 +97,15 @@ export async function POST(
         },
         { status: 409 },
       );
-    const validations = await preflightPaidDestinations(
-      input.workspaceId,
-      plan,
-    );
-    if (validations.some((result) => !result.valid))
+    const [validations, messagingValidations] = await Promise.all([
+      preflightPaidDestinations(input.workspaceId, plan),
+      preflightMessagingDestinations(input.workspaceId, plan),
+    ]);
+    if ([...validations, ...messagingValidations].some((result) => !result.valid))
       return Response.json(
         {
           ok: false,
-          errors: validations.flatMap((result) =>
+          errors: [...validations, ...messagingValidations].flatMap((result) =>
             result.errors.map((error) => ({ ...error, recoverable: true })),
           ),
           operationId,
@@ -198,14 +201,38 @@ export async function POST(
         .eq("id", deployed.deploymentId);
     }
 
-    const organic = plan.content.filter(
-      (item) => !paidChannels.has(item.channel),
-    );
     const { data: itemRows } = await admin
       .from("content_items")
       .select("id,current_version_id,channel_key")
       .eq("campaign_id", id)
       .eq("workspace_id", input.workspaceId);
+    const messaging = plan.content.filter((item) => messagingChannels.has(item.channel));
+    for (const item of messaging) {
+      const row = itemRows?.find((candidate) => candidate.channel_key === item.channel && candidate.current_version_id);
+      if (!row?.current_version_id || !item.accountId || !item.messaging?.audienceId)
+        throw new Error(`Messaging delivery for ${item.channel} is incomplete.`);
+      const batchId = crypto.randomUUID();
+      const runAfter = item.scheduledFor ?? plan.startsAt;
+      await admin.from("message_batches").insert({
+        id: batchId,
+        workspace_id: input.workspaceId,
+        campaign_id: id,
+        content_version_id: row.current_version_id,
+        provider_account_id: item.accountId,
+        list_id: item.messaging.audienceId,
+        channel: item.channel,
+        status: "queued",
+        scheduled_for: runAfter,
+        idempotency_key: `messaging:${row.current_version_id}:${item.accountId}:${item.messaging.audienceId}`,
+        eligible_count: item.messaging.estimatedRecipients,
+        created_by: user.id,
+      });
+      createdMessageBatchIds.push(batchId);
+      await enqueueMessageBatch(batchId, runAfter);
+    }
+    const organic = plan.content.filter(
+      (item) => !paidChannels.has(item.channel) && !messagingChannels.has(item.channel),
+    );
     for (const item of organic) {
       const row = itemRows?.find(
         (candidate) =>
@@ -249,7 +276,7 @@ export async function POST(
     }
     const campaignStatus = created.length
       ? "live"
-      : organic.length
+      : organic.length || messaging.length
         ? "scheduled"
         : "completed";
     await admin
@@ -265,6 +292,7 @@ export async function POST(
         campaignId: item.resources.campaignId,
       })),
       scheduledOrganic: organic.length,
+      scheduledMessaging: messaging.length,
     };
     await admin
       .from("operations")
@@ -290,6 +318,8 @@ export async function POST(
   } catch (error) {
     const admin = getSupabaseAdmin();
     const compensationErrors: string[] = [];
+    if (createdMessageBatchIds.length)
+      await admin.from("message_batches").update({ status: "cancelled" }).in("id", createdMessageBatchIds);
     if (createdPublishJobIds.length)
       await admin
         .from("publish_jobs")

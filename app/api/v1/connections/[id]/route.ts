@@ -11,7 +11,7 @@ import {
 const schema = z.object({ workspaceId: z.string().uuid() });
 
 async function revokeRemote(provider: ProviderKey, accessToken: string) {
-  if (provider === "chatgpt_ads" || provider === "tiktok_ads") return false;
+  if (["chatgpt_ads", "tiktok_ads", "twilio_messaging", "sendgrid_email"].includes(provider)) return false;
   let response: Response;
   if (provider === "meta_business") {
     response = await fetch(

@@ -1,6 +1,6 @@
 # GrowthOS Production V1
 
-GrowthOS is an invite-only campaign creation and delivery product for US and Canadian businesses. A marketer can start from one of twelve curated bundles or an AI objective, resolve the campaign with real product/service media, inspect every channel-specific creative and delivery field, approve immutable versions, create paid provider resources paused, and explicitly launch.
+GrowthOS is an invite-only campaign creation and delivery product for US and Canadian businesses. A marketer can start from one of twelve curated bundles or an AI objective, resolve the campaign with real product/service media, inspect every channel-specific creative and delivery field, approve immutable versions, create paid provider resources paused, and explicitly launch. Email is delivered through Twilio SendGrid and SMS through Twilio Messaging Services, with explicit-consent lists, suppressions, signed callbacks, STOP/unsubscribe handling, and real delivery state.
 
 This repository contains no demo users, seeded workspace, simulated metrics, mock provider, or mock AI fallback. If production infrastructure is absent, the application says so and remains unavailable.
 
@@ -21,7 +21,9 @@ Organic destinations:
 - LinkedIn organization pages
 - TikTok photo posts and photo carousels
 
-Email, SMS, WhatsApp, video, native lead forms, ecommerce catalogs, CRM/CDP sync, paid LinkedIn, and other ad networks are deliberately excluded.
+WhatsApp, video, native lead forms, ecommerce catalogs, CRM/CDP sync, paid LinkedIn, and other ad networks are deliberately excluded.
+
+Before onboarding customers, complete [PRODUCTION_LAUNCH_CHECKLIST.md](./PRODUCTION_LAUNCH_CHECKLIST.md). Provider approvals, verified senders, production secrets, compliance registrations, and real smoke tests are external launch requirements; source code cannot grant them.
 
 ## Production stack
 

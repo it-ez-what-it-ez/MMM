@@ -1,5 +1,7 @@
 # GrowthOS Production V1 architecture
 
+Email and SMS use customer-owned Twilio SendGrid and Twilio Messaging Service connections. Contacts, channel-specific express consent, immutable consent events, suppressions, batches, per-recipient deliveries, and provider events are workspace-isolated Postgres records. The `messaging_delivery` PGMQ queue is consumed in bounded chunks by the `send-messages` Edge Function. SendGrid Event Webhooks use ECDSA verification; Twilio callbacks use the exact public URL, form body, and `X-Twilio-Signature`. Email uses an inline CID attachment for the approved product image so private Storage objects never become permanent public URLs.
+
 ## Product boundary
 
 GrowthOS V1 has five destinations: Home, Campaigns, Calendar, Results, and Manage. A campaign has Review, Schedule, Delivery, and Results tabs. The UI deliberately keeps provider administration, assets, team access, and workspace limits outside the daily flow.

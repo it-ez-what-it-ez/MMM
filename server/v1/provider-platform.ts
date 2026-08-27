@@ -2,9 +2,7 @@ import "server-only";
 
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getAppOrigin } from "@/lib/supabase/config";
-import type { ProviderKey } from "@/lib/v1/domain";
-
-type OAuthProviderKey = Exclude<ProviderKey, "chatgpt_ads">;
+import type { OAuthProviderKey, ProviderKey } from "@/lib/v1/domain";
 
 export type ProviderReadiness = {
   provider: ProviderKey;
@@ -61,6 +59,10 @@ function hasEnvironment(provider: ProviderKey) {
       );
     case "chatgpt_ads":
       return process.env.CHATGPT_ADS_ENABLED === "true";
+    case "twilio_messaging":
+      return process.env.TWILIO_MESSAGING_ENABLED === "true";
+    case "sendgrid_email":
+      return process.env.SENDGRID_EMAIL_ENABLED === "true";
   }
 }
 
@@ -71,7 +73,7 @@ export async function getProviderReadiness(
   const { data } = await admin
     .from("platform_provider_readiness")
     .select(
-      "configured,review_status,redirect_verified,last_smoke_test_status,kill_switch",
+      "configured,review_status,redirect_verified,webhook_verified,last_smoke_test_status,kill_switch",
     )
     .eq("provider_key", provider)
     .eq("environment", environment())
@@ -83,14 +85,24 @@ export async function getProviderReadiness(
       ? reviewStatus === "approved"
       : ["sandbox", "approved"].includes(reviewStatus);
   const redirectVerified = Boolean(data?.redirect_verified);
+  const webhookVerified = Boolean(data?.webhook_verified);
   const smokeTestPassed = data?.last_smoke_test_status === "passed";
   const killSwitch = data?.kill_switch ?? true;
   const adapterReady = implementationReady(provider);
+  const redirectReady = ["chatgpt_ads", "twilio_messaging", "sendgrid_email"].includes(
+    provider,
+  )
+    ? true
+    : redirectVerified;
+  const webhookReady = ["twilio_messaging", "sendgrid_email"].includes(provider)
+    ? webhookVerified
+    : true;
   const ready =
     adapterReady &&
     configured &&
     reviewReady &&
-    redirectVerified &&
+    redirectReady &&
+    webhookReady &&
     smokeTestPassed &&
     !killSwitch;
   const reason = ready
@@ -101,8 +113,10 @@ export async function getProviderReadiness(
       ? "GrowthOS has not configured this provider application."
       : !reviewReady
         ? "Provider review or sandbox access is not approved."
-        : !redirectVerified
+        : !redirectReady
           ? "The provider callback has not been verified."
+          : !webhookReady
+            ? "The provider delivery webhook has not been verified."
           : !smokeTestPassed
             ? "The latest platform smoke test has not passed."
             : "The provider kill switch is enabled.";

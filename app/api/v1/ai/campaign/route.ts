@@ -33,6 +33,15 @@ const schema = z.object({
     privacy: z.string().nullable(),
     commentsEnabled: z.boolean(),
   }),
+  messaging: z.object({
+    audienceId: z.string().uuid(),
+    eligible: z.object({ email: z.number().int().nonnegative(), sms: z.number().int().nonnegative() }),
+    legalBusinessName: z.string().min(1).max(160),
+    physicalAddress: z.string().min(5).max(500),
+    fromName: z.string().max(100).nullable(),
+    fromAddress: z.string().email().nullable(),
+    replyToAddress: z.string().email().nullable(),
+  }).nullable(),
 });
 
 async function sha256(value: string) {

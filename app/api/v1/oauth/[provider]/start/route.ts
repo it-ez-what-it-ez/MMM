@@ -17,7 +17,7 @@ import {
   oauthConfiguration,
 } from "@/server/v1/provider-platform";
 
-const oauthProvider = z.enum(PROVIDER_KEYS).exclude(["chatgpt_ads"]);
+const oauthProvider = z.enum(PROVIDER_KEYS).exclude(["chatgpt_ads", "twilio_messaging", "sendgrid_email"]);
 
 export async function GET(
   request: NextRequest,

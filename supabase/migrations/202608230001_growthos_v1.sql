@@ -565,7 +565,8 @@ begin
         'searchHeadlines', item -> 'searchHeadlines',
         'searchDescriptions', item -> 'searchDescriptions',
         'searchKeywords', item -> 'searchKeywords',
-        'publishingOptions', item -> 'publishingOptions'
+        'publishingOptions', item -> 'publishingOptions',
+        'messaging', item -> 'messaging'
       ),
       coalesce(item -> 'scene', '{}'::jsonb),
       array(select jsonb_array_elements_text(coalesce(item -> 'mediaIds', '[]'::jsonb))::uuid),

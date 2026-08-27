@@ -6,6 +6,7 @@ import {
   type ChannelKey,
   CHANNEL_KEYS,
 } from "@/lib/v1/domain";
+import { buildCampaignEmailHtml } from "@/lib/v1/messaging";
 
 const generatedBundleSchema = z.object({
   name: z.string().min(1).max(160),
@@ -48,6 +49,15 @@ export type CampaignPlanningInput = {
     privacy: string | null;
     commentsEnabled: boolean;
   };
+  messaging: {
+    audienceId: string;
+    eligible: { email: number; sms: number };
+    legalBusinessName: string;
+    physicalAddress: string;
+    fromName: string | null;
+    fromAddress: string | null;
+    replyToAddress: string | null;
+  } | null;
 };
 
 export interface AIProvider {
@@ -135,6 +145,8 @@ const carouselChannels = new Set<ChannelKey>([
 ]);
 
 function formatFor(channel: ChannelKey, hasCarousel: boolean) {
+  if (channel === "email") return "email_html";
+  if (channel === "sms") return "sms_text";
   if (channel === "google_search") return "responsive_search";
   if (channel === "google_display") return "responsive_display";
   if (channel === "linkedin") return "static_image";
@@ -238,7 +250,7 @@ export class OpenAICampaignProvider implements AIProvider {
           : [];
         const mediaId = input.product.mediaIds[0] ?? null;
         const unresolvedFields: string[] = [];
-        if (channel !== "google_search" && !mediaId)
+        if (!["google_search", "sms"].includes(channel) && !mediaId)
           unresolvedFields.push(
             "Upload and select a real product or service image",
           );
@@ -246,12 +258,40 @@ export class OpenAICampaignProvider implements AIProvider {
           unresolvedFields.push("Select a real ad account");
         if (channel === "tiktok" && !input.tiktokPublishingOptions.privacy)
           unresolvedFields.push("Choose a current creator privacy option");
+        if (["email", "sms"].includes(channel) && !input.messaging)
+          unresolvedFields.push("Choose a consented audience and complete the sender identity");
+        const body = channel === "sms"
+          ? `${generatedItem.body} ${input.landingUrl} Reply STOP to unsubscribe.`.slice(0, 480)
+          : generatedItem.body;
+        const messaging = input.messaging && (channel === "email" || channel === "sms")
+          ? {
+              audienceId: input.messaging.audienceId,
+              estimatedRecipients: input.messaging.eligible[channel],
+              fromName: channel === "email" ? input.messaging.fromName : input.messaging.legalBusinessName,
+              fromAddress: channel === "email" ? input.messaging.fromAddress : null,
+              replyToAddress: channel === "email" ? input.messaging.replyToAddress : null,
+              subject: channel === "email" ? generatedItem.headline : null,
+              preheader: channel === "email" ? generatedItem.body.slice(0, 150) : null,
+              html: channel === "email" ? buildCampaignEmailHtml({
+                businessName: input.messaging.legalBusinessName,
+                preheader: generatedItem.body.slice(0, 150),
+                headline: generatedItem.headline,
+                body: generatedItem.body,
+                cta: generatedItem.cta,
+                destinationUrl: input.landingUrl,
+                physicalAddress: input.messaging.physicalAddress,
+                includeHeroImage: Boolean(mediaId),
+              }) : null,
+              physicalAddress: channel === "email" ? input.messaging.physicalAddress : null,
+              smsOptOutText: channel === "sms" ? "Reply STOP to unsubscribe." : null,
+            }
+          : null;
         return {
           id: crypto.randomUUID(),
           channel,
           format: formatFor(channel, generatedSlides.length > 1),
           headline: generatedItem.headline,
-          body: generatedItem.body,
+          body,
           cta: generatedItem.cta,
           destinationUrl: input.landingUrl,
           carouselSlides: generatedSlides.map((slide) => ({
@@ -284,9 +324,10 @@ export class OpenAICampaignProvider implements AIProvider {
             : {},
           publishingOptions:
             channel === "tiktok" ? input.tiktokPublishingOptions : null,
+          messaging,
           scheduledFor: null,
           unresolvedFields,
-          scene: mediaId
+          scene: mediaId && channel !== "sms"
             ? {
                 width: channel === "google_display" ? 1200 : 1080,
                 height: channel === "google_display" ? 628 : 1080,

@@ -560,6 +560,19 @@ label em { float: right; color: #87928f; font-size: 12px; font-style: normal; fo
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
 
+.email-client-preview { background: #f4f6f5; padding: 12px; }
+.email-inbox-line { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12px; overflow-wrap: anywhere; }
+.email-message { max-width: 420px; margin: 14px auto 0; padding: 22px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.email-message img { width: 100%; max-height: 260px; object-fit: contain; background: var(--soft); }
+.email-message h4 { margin: 18px 0 8px; font-size: 24px; }
+.email-message p { line-height: 1.55; }
+.email-message > a { display: inline-block; margin: 8px 0 22px; padding: 10px 14px; background: var(--brand); color: white; border-radius: 7px; font-weight: 700; }
+.email-message small { display: block; padding-top: 14px; border-top: 1px solid var(--line); color: var(--muted); }
+.phone-message-preview { width: min(320px, 100%); min-height: 420px; margin: 0 auto; padding: 18px 14px; border: 8px solid #1d2825; border-radius: 34px; background: #eef3f1; color: #17221f; }
+.phone-top { padding-bottom: 14px; text-align: center; font-size: 12px; color: #5a6864; }
+.message-bubble { margin-top: 60px; padding: 12px 14px; border-radius: 17px 17px 17px 5px; background: #d8e3df; line-height: 1.45; white-space: pre-wrap; }
+.phone-message-preview > small { display: block; margin-top: 12px; color: #5a6864; text-align: center; }
+
 @media (prefers-color-scheme: dark) {
   :root { --ink: #e7eeeb; --muted: #9daba7; --soft: #1b2925; --line: #2a3b36; --canvas: #111915; --card: #17221e; --brand: #38b7a5; --brand-dark: #2d9d8e; --brand-soft: #173b34; --warning-bg: #332817; --error-bg: #35201f; --shadow: 0 10px 32px rgba(0,0,0,.22); }
   input, textarea, select, .button, .search-box, .segmented, .topbar, .recommendation-card, .comfortable-list, .panel, .template-card, .creator-mode button, .objective-card, .form-panel, .product-preview-panel, .review-overview, .channel-review, .publication-preview, .manage-grid > a, .product-card, .connection-explainer, .provider-card, .onboarding-card { background-color: var(--card); color: var(--ink); }
