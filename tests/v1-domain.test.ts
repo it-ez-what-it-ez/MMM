@@ -10,6 +10,7 @@ import {
 import {
   campaignTemplates,
   getTemplate,
+  resolveTemplateText,
   templatesForChannels,
 } from "@/lib/v1/templates";
 import { buildCampaignEmailHtml, isSmsOptOut, smsSegmentCount } from "@/lib/v1/messaging";
@@ -116,6 +117,58 @@ describe("production template library", () => {
         (asset) => asset.channel === "instagram",
       ),
     ).toBe(true);
+  });
+
+  it("ships complete, ordered tactics instead of one-card placeholders", () => {
+    for (const template of campaignTemplates) {
+      expect(template.version).toBe(2);
+      expect(template.assets.length).toBeGreaterThanOrEqual(4);
+      expect(new Set(template.assets.map((asset) => asset.id)).size).toBe(
+        template.assets.length,
+      );
+      expect(template.defaultCadence).toEqual(
+        template.assets.map((asset) => ({
+          day: asset.dayOffset,
+          assetId: asset.id,
+        })),
+      );
+      expect(
+        template.assets.every(
+          (asset) => asset.dayOffset >= 0 && asset.dayOffset < template.durationDays,
+        ),
+      ).toBe(true);
+      expect(
+        template.assets.every(
+          (asset) => asset.design.blocks.some((block) => block.kind === "headline"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("coordinates BFCM email, SMS, social, search, and paid steps", () => {
+    const tactic = getTemplate("bfcm")!;
+    expect(tactic.assets).toHaveLength(8);
+    expect(tactic.assets.filter((asset) => asset.channel === "email")).toHaveLength(2);
+    expect(tactic.assets.filter((asset) => asset.channel === "sms")).toHaveLength(2);
+    expect(tactic.channels).toEqual(
+      expect.arrayContaining(["email", "sms", "instagram", "facebook", "meta_ads", "google_search"]),
+    );
+  });
+
+  it("resolves business and product placeholders before approval", () => {
+    const resolved = resolveTemplateText(
+      "{{business}} presents {{product}} — {{offer}}. {{description}}",
+      {
+        business: "Northstar",
+        product: "Trail Pack",
+        offer: "Save 20%",
+        description: "Built for weekends",
+      },
+    );
+    expect(resolved).toBe(
+      "Northstar presents Trail Pack — Save 20%. Built for weekends",
+    );
+    expect(resolved).not.toMatch(/\{\{/);
   });
 });
 
@@ -236,6 +289,26 @@ describe("messaging safety", () => {
     expect(approvalBlockers(plan)).toEqual([]);
     plan.content[0].messaging!.html = "<p>No opt out</p>";
     expect(approvalBlockers(plan)).toContain("Email: include the required unsubscribe link");
+  });
+
+  it("renders an editable tactic design into production email HTML", () => {
+    const design = getTemplate("bfcm")!.assets.find(
+      (asset) => asset.channel === "email",
+    )!.design;
+    const html = buildCampaignEmailHtml({
+      businessName: "Example Inc.",
+      headline: "A ready campaign",
+      body: "The complete message.",
+      cta: "Shop now",
+      destinationUrl: "https://example.com/product",
+      physicalAddress: "123 Main Street, Toronto, ON",
+      includeHeroImage: true,
+      design,
+    });
+    expect(html).toContain("cid:growthos-hero");
+    expect(html).toContain(design.background);
+    expect(html).toContain(design.accent);
+    expect(html).toContain("{{unsubscribe_url}}");
   });
 
   it("does not require an image for SMS but requires STOP in the exact body", () => {

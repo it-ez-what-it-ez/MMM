@@ -11,6 +11,10 @@ const messagingMigration = readFileSync(
   join(root, "supabase/migrations/202608260001_email_sms.sql"),
   "utf8",
 );
+const tacticMigration = readFileSync(
+  join(root, "supabase/migrations/202608260002_tactic_engine.sql"),
+  "utf8",
+);
 
 function sourceFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -141,5 +145,24 @@ describe("database isolation", () => {
     expect(decisionRoute).toContain("changes_requested");
     expect(decisionRoute).toContain('status: "cancelled"');
     expect(decisionRoute).toContain("separate_approver_required");
+  });
+
+  it("persists tactic identity and delivers repeated channel steps by item id", () => {
+    for (const field of [
+      "templateStepId",
+      "stepLabel",
+      "tacticStage",
+      "scheduledFor",
+      "design",
+    ])
+      expect(tacticMigration).toContain(`'${field}'`);
+    const launchRoute = readFileSync(
+      join(root, "app/api/v1/campaigns/[id]/launch/route.ts"),
+      "utf8",
+    );
+    expect(launchRoute).toContain("candidate.id === item.id");
+    expect(launchRoute).not.toContain(
+      "candidate.channel_key === item.channel",
+    );
   });
 });

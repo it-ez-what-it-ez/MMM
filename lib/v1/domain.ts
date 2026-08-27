@@ -177,8 +177,49 @@ export const templateVariableSchema = z.object({
   placeholder: z.string().optional(),
 });
 
+export const tacticStageSchema = z.enum([
+  "announce",
+  "educate",
+  "prove",
+  "remind",
+  "convert",
+]);
+
+export const tacticBlockSchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum([
+    "eyebrow",
+    "headline",
+    "body",
+    "product",
+    "discount",
+    "button",
+    "footer",
+  ]),
+  label: z.string().min(1),
+  text: z.string(),
+  visible: z.boolean().default(true),
+});
+
+export const tacticDesignSchema = z.object({
+  layout: z.enum(["product_hero", "split", "editorial", "offer_card", "minimal"]),
+  background: z.string().regex(/^#[0-9a-f]{6}$/i),
+  surface: z.string().regex(/^#[0-9a-f]{6}$/i),
+  accent: z.string().regex(/^#[0-9a-f]{6}$/i),
+  textColor: z.string().regex(/^#[0-9a-f]{6}$/i),
+  alignment: z.enum(["left", "center"]),
+  blocks: z.array(tacticBlockSchema).min(1),
+});
+
+export type TacticStage = z.infer<typeof tacticStageSchema>;
+export type TacticDesign = z.infer<typeof tacticDesignSchema>;
+
 export const templateAssetRecipeSchema = z.object({
   id: z.string().min(1),
+  stepLabel: z.string().min(1).default("Campaign message"),
+  stage: tacticStageSchema.default("announce"),
+  dayOffset: z.number().int().min(0).default(0),
+  sendTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).default("10:00"),
   channel: z.enum(CHANNEL_KEYS),
   format: z.enum(["static_image", "carousel", "photo", "photo_carousel", "text", "document", "responsive_search", "responsive_display", "email_html", "sms_text"]),
   aspectRatio: z.string(),
@@ -187,12 +228,15 @@ export const templateAssetRecipeSchema = z.object({
   exampleHeadline: z.string(),
   exampleBody: z.string(),
   cta: z.string(),
+  design: tacticDesignSchema,
 });
 
 export const templateManifestSchema = z.object({
   id: z.string().min(1),
   version: z.number().int().positive(),
   name: z.string().min(1),
+  category: z.enum(["seasonal", "launch", "promotion", "growth", "education"]),
+  sequenceSummary: z.string().min(1),
   summary: z.string().min(1),
   outcome: z.string().min(1),
   businessTypes: z.array(z.enum(["ecommerce", "service"])).min(1),
@@ -223,6 +267,9 @@ export type CreativeScene = z.infer<typeof creativeSceneSchema>;
 
 export const campaignContentSchema = z.object({
   id: z.string().uuid(),
+  templateStepId: z.string().min(1).nullable().optional(),
+  stepLabel: z.string().min(1).nullable().optional(),
+  tacticStage: tacticStageSchema.nullable().optional(),
   channel: z.enum(CHANNEL_KEYS),
   format: z.string(),
   headline: z.string(),
@@ -263,6 +310,7 @@ export const campaignContentSchema = z.object({
     .nullable()
     .default(null),
   scheduledFor: z.string().datetime().nullable(),
+  design: tacticDesignSchema.nullable().optional(),
   scene: creativeSceneSchema.nullable(),
   unresolvedFields: z.array(z.string()),
 });

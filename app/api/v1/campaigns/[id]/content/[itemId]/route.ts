@@ -93,6 +93,9 @@ export async function POST(
       content_item_id: itemId,
       version,
       copy: {
+        templateStepId: input.content.templateStepId,
+        stepLabel: input.content.stepLabel,
+        tacticStage: input.content.tacticStage,
         headline: input.content.headline,
         body: input.content.body,
         cta: input.content.cta,
@@ -102,6 +105,8 @@ export async function POST(
         searchKeywords: input.content.searchKeywords,
         publishingOptions: input.content.publishingOptions,
         messaging: input.content.messaging,
+        scheduledFor: input.content.scheduledFor,
+        design: input.content.design,
       },
       creative_scene: input.content.scene ?? {},
       rendered_media_ids: input.content.mediaIds,

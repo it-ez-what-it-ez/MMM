@@ -42,9 +42,15 @@ import {
   CHANNEL_KEYS,
   providerCapabilities,
   type ProviderKey,
+  type TacticDesign,
 } from "@/lib/v1/domain";
-import { campaignTemplates, getTemplate } from "@/lib/v1/templates";
+import {
+  campaignTemplates,
+  getTemplate,
+  resolveTemplateText,
+} from "@/lib/v1/templates";
 import { buildCampaignEmailHtml, smsSegmentCount } from "@/lib/v1/messaging";
+import { TacticEditor } from "./TacticEditor";
 
 type Workspace = {
   id: string;
@@ -206,54 +212,85 @@ async function renderCreativeBlob(input: {
   height: number;
   headline: string;
   body: string;
+  design?: CampaignPlan["content"][number]["design"];
 }) {
   const canvas = document.createElement("canvas");
   canvas.width = input.width;
   canvas.height = input.height;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Your browser cannot render campaign assets.");
-  context.fillStyle = "#F3F1E8";
+  const design = input.design;
+  const background = design?.background ?? "#F3F1E8";
+  const surface = design?.surface ?? "#FFFFFF";
+  const accent = design?.accent ?? "#087F72";
+  const textColor = design?.textColor ?? "#102822";
+  context.fillStyle = background;
   context.fillRect(0, 0, input.width, input.height);
   const image = await loadCanvasImage(input.sourceUrl);
-  const subjectTop = Math.round(input.height * 0.27);
-  const subjectHeight = Math.round(input.height * 0.68);
-  const subjectWidth = Math.round(input.width * 0.84);
+  const split = design?.layout === "split";
+  const subjectTop = Math.round(input.height * (split ? 0.12 : 0.3));
+  const subjectHeight = Math.round(input.height * (split ? 0.76 : 0.63));
+  const subjectWidth = Math.round(input.width * (split ? 0.44 : 0.82));
+  const subjectLeft = split ? input.width * 0.52 : input.width * 0.09;
+  context.fillStyle = surface;
+  context.roundRect(
+    subjectLeft,
+    subjectTop,
+    subjectWidth,
+    subjectHeight,
+    Math.round(input.width * 0.025),
+  );
+  context.fill();
   const scale = Math.min(
-    subjectWidth / image.naturalWidth,
-    subjectHeight / image.naturalHeight,
+    (subjectWidth * 0.9) / image.naturalWidth,
+    (subjectHeight * 0.9) / image.naturalHeight,
   );
   const drawWidth = image.naturalWidth * scale;
   const drawHeight = image.naturalHeight * scale;
   context.drawImage(
     image,
-    (input.width - drawWidth) / 2,
+    subjectLeft + (subjectWidth - drawWidth) / 2,
     subjectTop + (subjectHeight - drawHeight) / 2,
     drawWidth,
     drawHeight,
   );
-  context.fillStyle = "#102822";
-  context.font = `700 ${Math.max(36, Math.round(input.width * 0.055))}px Arial, sans-serif`;
+  context.fillStyle = textColor;
+  context.font = `700 ${Math.max(36, Math.round(input.width * (split ? 0.048 : 0.055)))}px Arial, sans-serif`;
   context.textBaseline = "top";
   const lineHeight = Math.max(42, Math.round(input.width * 0.063));
-  wrapCanvasText(context, input.headline, input.width * 0.84).forEach(
+  const copyLeft = input.width * 0.08;
+  const copyWidth = input.width * (split ? 0.38 : 0.84);
+  wrapCanvasText(context, input.headline, copyWidth).forEach(
     (line, index) =>
       context.fillText(
         line,
-        input.width * 0.08,
+        copyLeft,
         input.height * 0.055 + index * lineHeight,
       ),
   );
   context.font = `500 ${Math.max(22, Math.round(input.width * 0.023))}px Arial, sans-serif`;
-  context.fillStyle = "#37554E";
-  wrapCanvasText(context, input.body, input.width * 0.84)
+  context.fillStyle = textColor;
+  wrapCanvasText(context, input.body, copyWidth)
     .slice(0, 2)
     .forEach((line, index) =>
       context.fillText(
         line,
-        input.width * 0.08,
-        input.height * 0.19 + index * Math.round(input.width * 0.03),
+        copyLeft,
+        input.height * (split ? 0.42 : 0.2) + index * Math.round(input.width * 0.03),
       ),
     );
+  const offer = design?.blocks.find(
+    (block) => block.kind === "discount" && block.visible,
+  )?.text;
+  if (offer) {
+    context.fillStyle = accent;
+    context.font = `700 ${Math.max(22, Math.round(input.width * 0.025))}px Arial, sans-serif`;
+    context.fillText(
+      offer,
+      copyLeft,
+      input.height * (split ? 0.68 : 0.245),
+    );
+  }
   return new Promise<Blob>((resolve, reject) =>
     canvas.toBlob(
       (blob) =>
@@ -282,6 +319,27 @@ const PAID_CHANNELS = new Set<ChannelKey>([
   "reddit_ads",
   "chatgpt_ads",
 ]);
+
+function tacticDate(startDate: string, dayOffset: number, sendTime: string) {
+  const [hours, minutes] = sendTime.split(":").map(Number);
+  const date = new Date(`${startDate}T00:00:00`);
+  date.setDate(date.getDate() + dayOffset);
+  date.setHours(hours, minutes, 0, 0);
+  return date.toISOString();
+}
+
+function resolveTacticDesign(
+  design: TacticDesign,
+  variables: Parameters<typeof resolveTemplateText>[1],
+): TacticDesign {
+  return {
+    ...design,
+    blocks: design.blocks.map((block) => ({
+      ...block,
+      text: resolveTemplateText(block.text, variables),
+    })),
+  };
+}
 
 async function authenticatedFetch(path: string, init: RequestInit = {}) {
   const { data } = await getBrowserSupabase().auth.getSession();
@@ -1341,6 +1399,14 @@ function CampaignCreator({
       );
     new URL(landingUrl);
     const mediaId = productMedia[0]?.id ?? null;
+    const templateVariables = {
+      business: workspace.name,
+      product: product.name,
+      offer: offer.trim(),
+      description:
+        product.description ??
+        `${product.name} from ${workspace.name}`,
+    };
     const paidSelected = channels.some((channel) => PAID_CHANNELS.has(channel));
     const result: CampaignPlan = {
       name: name.trim() || `${product.name} — ${selectedTemplate.name}`,
@@ -1365,7 +1431,7 @@ function CampaignCreator({
         .map((asset) => {
           const accountId = accountForChannel(asset.channel);
           const unresolvedFields: string[] = [];
-          if (asset.channel !== "google_search" && !mediaId)
+          if (!["google_search", "sms"].includes(asset.channel) && !mediaId)
             unresolvedFields.push(`Upload a real image for ${product.name}`);
           if (PAID_CHANNELS.has(asset.channel) && !accountId)
             unresolvedFields.push("Select a real ad account");
@@ -1379,11 +1445,16 @@ function CampaignCreator({
             unresolvedFields.push("Choose a consented audience");
           if (["email", "sms"].includes(asset.channel) && !messagingSettings)
             unresolvedFields.push("Complete the legal sender identity");
-          const headline = asset.exampleHeadline.replace(
-            /your/gi,
-            product.name,
+          const headline = resolveTemplateText(
+            asset.exampleHeadline,
+            templateVariables,
           );
-          const body = `${asset.exampleBody} ${offer.trim()}`;
+          const body = resolveTemplateText(
+            asset.exampleBody,
+            templateVariables,
+          );
+          const cta = resolveTemplateText(asset.cta, templateVariables);
+          const design = resolveTacticDesign(asset.design, templateVariables);
           const messageBody = asset.channel === "sms"
             ? `${body} ${landingUrl} Reply STOP to unsubscribe.`.slice(0, 480)
             : body;
@@ -1397,7 +1468,7 @@ function CampaignCreator({
                 replyToAddress: asset.channel === "email" ? String(senderAccount?.capabilities.replyToAddress ?? "") || null : null,
                 subject: asset.channel === "email" ? headline : null,
                 preheader: asset.channel === "email" ? body.slice(0, 150) : null,
-                html: asset.channel === "email" ? buildCampaignEmailHtml({ businessName: messagingSettings.legal_business_name, preheader: body.slice(0, 150), headline, body, cta: asset.cta, destinationUrl: landingUrl, physicalAddress: messagingSettings.physical_address, includeHeroImage: Boolean(mediaId) }) : null,
+                html: asset.channel === "email" ? buildCampaignEmailHtml({ businessName: messagingSettings.legal_business_name, preheader: body.slice(0, 150), headline, body, cta, destinationUrl: landingUrl, physicalAddress: messagingSettings.physical_address, includeHeroImage: Boolean(mediaId), design }) : null,
                 physicalAddress: asset.channel === "email" ? messagingSettings.physical_address : null,
                 smsOptOutText: asset.channel === "sms" ? "Reply STOP to unsubscribe." : null,
               }
@@ -1420,11 +1491,14 @@ function CampaignCreator({
               : [];
           return {
             id: crypto.randomUUID(),
+            templateStepId: asset.id,
+            stepLabel: asset.stepLabel,
+            tacticStage: asset.stage,
             channel: asset.channel,
             format: asset.format,
             headline,
             body: messageBody,
-            cta: asset.cta,
+            cta,
             destinationUrl: landingUrl,
             carouselSlides: slides,
             searchHeadlines:
@@ -1459,14 +1533,24 @@ function CampaignCreator({
                   }
                 : null,
             messaging,
-            scheduledFor: null,
+            scheduledFor: tacticDate(
+              startDate,
+              asset.dayOffset,
+              asset.sendTime,
+            ),
             unresolvedFields,
+            design,
             scene: mediaId && asset.channel !== "sms"
               ? {
                   width: asset.aspectRatio === "1.91:1" ? 1200 : 1080,
-                  height: asset.aspectRatio === "1.91:1" ? 628 : 1080,
+                  height:
+                    asset.aspectRatio === "1.91:1"
+                      ? 628
+                      : asset.aspectRatio === "4:5"
+                        ? 1350
+                        : 1080,
                   layers: [
-                    { kind: "background" as const, color: "#F3F1E8" },
+                    { kind: "background" as const, color: design.background },
                     {
                       kind: "subject" as const,
                       mediaId,
@@ -1483,7 +1567,7 @@ function CampaignCreator({
                       x: 72,
                       y: 70,
                       width: 936,
-                      color: "#102822",
+                      color: design.textColor,
                       align: "left" as const,
                     },
                   ],
@@ -1555,6 +1639,7 @@ function CampaignCreator({
           height: frame.height,
           headline: frame.headline,
           body: frame.body,
+          design: item.design,
         });
         assets.push(
           await storeRenderedFrame(
@@ -1664,8 +1749,7 @@ function CampaignCreator({
     setBusy(true);
     try {
       if (mode === "template") {
-        const rendered = await prepareRenderedPlan(buildTemplatePlan());
-        setPlan(rendered);
+        setPlan(buildTemplatePlan());
         setStep(3);
       } else await buildAiPlan();
     } catch (cause) {
@@ -1681,9 +1765,35 @@ function CampaignCreator({
     setBusy(true);
     setError("");
     try {
+      const prepared = await prepareRenderedPlan({
+        ...plan,
+        content: plan.content.map((item) =>
+          item.channel === "email" && item.messaging?.physicalAddress
+            ? {
+                ...item,
+                messaging: {
+                  ...item.messaging,
+                  subject: item.headline,
+                  preheader: item.body.slice(0, 150),
+                  html: buildCampaignEmailHtml({
+                    businessName: item.messaging.fromName ?? workspace.name,
+                    preheader: item.body.slice(0, 150),
+                    headline: item.headline,
+                    body: item.body,
+                    cta: item.cta,
+                    destinationUrl: item.destinationUrl,
+                    physicalAddress: item.messaging.physicalAddress,
+                    includeHeroImage: item.mediaIds.length > 0,
+                    design: item.design,
+                  }),
+                },
+              }
+            : item,
+        ),
+      });
       const response = await authenticatedFetch("/api/v1/campaigns", {
         method: "POST",
-        body: JSON.stringify({ workspaceId: workspace.id, plan }),
+        body: JSON.stringify({ workspaceId: workspace.id, plan: prepared }),
       });
       const result = (await response.json()) as {
         ok: boolean;
@@ -1730,7 +1840,7 @@ function CampaignCreator({
               ? "How do you want to start?"
               : step === 2
                 ? "Add the campaign essentials"
-                : "Review exactly what will be created"}
+                : "Edit every step before you say yes"}
           </h1>
         </div>
         <div className="step-dots">
@@ -1774,28 +1884,33 @@ function CampaignCreator({
             </button>
           </div>
           {mode === "template" ? (
-            <div className="template-grid">
-              {availableTemplates.map((template) => (
-                <button
-                  key={template.id}
-                  className={`template-card ${templateId === template.id ? "selected" : ""}`}
-                  onClick={() => selectTemplate(template.id)}
-                >
-                  <TemplatePreview templateId={template.id} />
-                  <div className="template-card-copy">
-                    <span className="template-check">
-                      {templateId === template.id && <Check size={15} />}
-                    </span>
-                    <h3>{template.name}</h3>
-                    <p>{template.summary}</p>
-                    <div>
-                      <span>{template.durationDays} days</span>
-                      <span>{template.assets.length} assets</span>
+            <>
+              <div className="template-grid">
+                {availableTemplates.map((template) => (
+                  <button
+                    key={template.id}
+                    className={`template-card ${templateId === template.id ? "selected" : ""}`}
+                    onClick={() => selectTemplate(template.id)}
+                  >
+                    <TemplatePreview templateId={template.id} />
+                    <div className="template-card-copy">
+                      <span className="template-check">
+                        {templateId === template.id && <Check size={15} />}
+                      </span>
+                      <h3>{template.name}</h3>
+                      <p>{template.summary}</p>
+                      <div>
+                        <span>{template.durationDays} days</span>
+                        <span>{template.assets.length} timed steps</span>
+                      </div>
                     </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+                  </button>
+                ))}
+              </div>
+              {selectedTemplate && (
+                <TemplateSequencePreview template={selectedTemplate} />
+              )}
+            </>
           ) : (
             <div className="objective-card">
               <Sparkles size={22} />
@@ -1910,7 +2025,10 @@ function CampaignCreator({
               <div />
               <fieldset className="span-2 channel-picker">
                 <legend>Channels</legend>
-                {CHANNEL_KEYS.map((channel) => (
+                {(mode === "template"
+                  ? selectedTemplate?.channels ?? []
+                  : CHANNEL_KEYS
+                ).map((channel) => (
                   <label
                     key={channel}
                     className={channels.includes(channel) ? "selected" : ""}
@@ -2094,10 +2212,11 @@ function CampaignCreator({
       )}
       {step === 3 && plan && (
         <div>
-          <ReviewSummary
+          <TacticEditor
             plan={plan}
             media={[...media, ...renderedMedia]}
             accounts={accounts}
+            onChange={setPlan}
           />
           <div className="creator-actions">
             <button className="button secondary" onClick={() => setStep(2)}>
@@ -2169,6 +2288,76 @@ function TemplatePreview({ templateId }: { templateId: string }) {
         <div className="template-carousel-count">1 / {example.slideCount}</div>
       )}
     </div>
+  );
+}
+
+function TemplateSequencePreview({
+  template,
+}: {
+  template: NonNullable<ReturnType<typeof getTemplate>>;
+}) {
+  return (
+    <section className="template-sequence-preview">
+      <header>
+        <div>
+          <p className="kicker">Ready-to-edit tactic</p>
+          <h2>See the full {template.name} campaign</h2>
+          <p>{template.sequenceSummary}</p>
+        </div>
+        <span>{template.assets.length} coordinated steps</span>
+      </header>
+      <div className="template-sequence-track">
+        {template.assets.map((asset, index) => {
+          const design = asset.design;
+          const isEmail = asset.channel === "email";
+          const isSms = asset.channel === "sms";
+          const isSearch = asset.channel === "google_search";
+          return (
+            <article key={asset.id}>
+              <div className="template-sequence-meta">
+                <b>{index + 1}. {asset.stepLabel}</b>
+                <span>Day {asset.dayOffset + 1} · {asset.sendTime} · {channelLabels[asset.channel]}</span>
+              </div>
+              {isSms ? (
+                <div className="template-sms-mini">
+                  <span>SMS</span>
+                  <p>{asset.exampleBody}</p>
+                  <small>Reply STOP to unsubscribe</small>
+                </div>
+              ) : isSearch ? (
+                <div className="template-search-mini">
+                  <small>Sponsored · yourbusiness.com</small>
+                  <b>{asset.exampleHeadline}</b>
+                  <p>{asset.exampleBody}</p>
+                </div>
+              ) : (
+                <div
+                  className={`template-creative-mini ${isEmail ? "is-email" : ""}`}
+                  style={{ background: design.background, color: design.textColor }}
+                >
+                  {isEmail && <div className="template-email-meta"><span>Subject</span><b>{asset.exampleHeadline}</b></div>}
+                  <div className="template-mini-copy">
+                    <small style={{ color: design.accent }}>{asset.stepLabel}</small>
+                    <b>{asset.exampleHeadline}</b>
+                    <p>{asset.exampleBody}</p>
+                    <span style={{ background: design.accent }}>{asset.cta}</span>
+                  </div>
+                  <div className="template-mini-product" style={{ background: design.surface }}>
+                    <ImagePlus size={22} />
+                    <small>Your uploaded image</small>
+                  </div>
+                  {asset.slideCount > 1 && <em>1 / {asset.slideCount} slides</em>}
+                </div>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      <footer>
+        <Check size={16} />
+        <span>Your product image, offer, links, sender, accounts, and dates replace every placeholder before approval.</span>
+      </footer>
+    </section>
   );
 }
 
@@ -2586,6 +2775,20 @@ function ContentEditor({
     setError("");
     try {
       new URL(destinationUrl);
+      const nextDesign = item.design
+        ? {
+            ...item.design,
+            blocks: item.design.blocks.map((block) =>
+              block.kind === "headline"
+                ? { ...block, text: headline.trim() }
+                : block.kind === "body"
+                  ? { ...block, text: body.trim() }
+                  : block.kind === "button"
+                    ? { ...block, text: cta.trim() }
+                    : block,
+            ),
+          }
+        : item.design;
       let nextMediaIds = item.mediaIds;
       let nextSlides = slides;
       if (!["google_search", "email", "sms"].includes(item.channel)) {
@@ -2635,6 +2838,7 @@ function ContentEditor({
             height: frame.height,
             headline: frame.headline,
             body: frame.body,
+            design: nextDesign,
           });
           assets.push(
             await uploadRenderedAsset({
@@ -2695,6 +2899,7 @@ function ContentEditor({
                     destinationUrl,
                     physicalAddress: item.messaging.physicalAddress,
                     includeHeroImage: nextMediaIds.length > 0,
+                    design: nextDesign,
                   })
                 : item.messaging.html,
             }
@@ -2709,6 +2914,7 @@ function ContentEditor({
               ),
             }
           : null,
+        design: nextDesign,
       };
       const response = await authenticatedFetch(
         `/api/v1/campaigns/${campaign.id}/content/${item.id}`,

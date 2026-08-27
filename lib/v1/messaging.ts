@@ -1,3 +1,5 @@
+import type { TacticDesign } from "./domain";
+
 const GSM_BASIC =
   "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà";
 const GSM_EXTENDED = "^{}\\[~]|€";
@@ -61,12 +63,43 @@ export function buildCampaignEmailHtml(input: {
   destinationUrl: string;
   physicalAddress: string;
   includeHeroImage?: boolean;
+  design?: TacticDesign | null;
 }) {
   const preheader = input.preheader
     ? `<div style="display:none;max-height:0;overflow:hidden;opacity:0">${escapeHtml(input.preheader)}</div>`
     : "";
-  const hero = input.includeHeroImage
-    ? '<img src="cid:growthos-hero" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0" />'
-    : "";
-  return `<!doctype html><html><body style="margin:0;background:#f5f7f6;font-family:Arial,sans-serif;color:#17221f">${preheader}<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px"><table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;background:#ffffff;border-radius:16px;overflow:hidden"><tr><td>${hero}</td></tr><tr><td style="padding:32px"><p style="margin:0 0 12px;font-size:13px;color:#66736f">${escapeHtml(input.businessName)}</p><h1 style="margin:0 0 16px;font-size:30px;line-height:1.2">${escapeHtml(input.headline)}</h1><p style="margin:0 0 24px;font-size:17px;line-height:1.6">${escapeHtml(input.body)}</p><a href="${escapeHtml(input.destinationUrl)}" style="display:inline-block;padding:13px 20px;background:#087f72;color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">${escapeHtml(input.cta)}</a></td></tr><tr><td style="padding:24px 32px;border-top:1px solid #e8ecea;font-size:12px;line-height:1.5;color:#68746f">${escapeHtml(input.physicalAddress)}<br/><a href="{{unsubscribe_url}}" style="color:#50645e">Unsubscribe</a></td></tr></table></td></tr></table></body></html>`;
+  const design = input.design;
+  const background = design?.background ?? "#f5f7f6";
+  const surface = design?.surface ?? "#ffffff";
+  const accent = design?.accent ?? "#087f72";
+  const textColor = design?.textColor ?? "#17221f";
+  const alignment = design?.alignment ?? "left";
+  const fallbackBlocks: TacticDesign["blocks"] = [
+    { id: "business", kind: "eyebrow", label: "Sender", text: input.businessName, visible: true },
+    { id: "product", kind: "product", label: "Product", text: "", visible: Boolean(input.includeHeroImage) },
+    { id: "headline", kind: "headline", label: "Headline", text: input.headline, visible: true },
+    { id: "body", kind: "body", label: "Body", text: input.body, visible: true },
+    { id: "button", kind: "button", label: "Button", text: input.cta, visible: true },
+  ];
+  const rows = (design?.blocks ?? fallbackBlocks)
+    .filter((block) => block.visible && block.kind !== "footer")
+    .map((block) => {
+      if (block.kind === "product")
+        return input.includeHeroImage
+          ? '<tr><td><img src="cid:growthos-hero" alt="" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0" /></td></tr>'
+          : "";
+      if (block.kind === "eyebrow")
+        return `<tr><td style="padding:28px 32px 8px;text-align:${alignment};font-size:13px;line-height:1.4;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:${accent}">${escapeHtml(block.text || input.businessName)}</td></tr>`;
+      if (block.kind === "headline")
+        return `<tr><td style="padding:8px 32px 12px;text-align:${alignment};font-size:32px;line-height:1.18;font-weight:800;color:${textColor}">${escapeHtml(block.text || input.headline)}</td></tr>`;
+      if (block.kind === "body")
+        return `<tr><td style="padding:8px 32px 20px;text-align:${alignment};font-size:17px;line-height:1.6;color:${textColor}">${escapeHtml(block.text || input.body)}</td></tr>`;
+      if (block.kind === "discount")
+        return `<tr><td style="padding:8px 32px 20px;text-align:${alignment}"><span style="display:inline-block;padding:10px 14px;border:1px solid ${accent};border-radius:999px;font-size:15px;font-weight:700;color:${accent}">${escapeHtml(block.text)}</span></td></tr>`;
+      if (block.kind === "button")
+        return `<tr><td style="padding:8px 32px 32px;text-align:${alignment}"><a href="${escapeHtml(input.destinationUrl)}" style="display:inline-block;padding:13px 20px;background:${accent};color:#ffffff;text-decoration:none;border-radius:8px;font-weight:700">${escapeHtml(block.text || input.cta)}</a></td></tr>`;
+      return "";
+    })
+    .join("");
+  return `<!doctype html><html><body style="margin:0;background:${background};font-family:Arial,sans-serif;color:${textColor}">${preheader}<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr><td align="center" style="padding:24px"><table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;background:${surface};border-radius:16px;overflow:hidden">${rows}<tr><td style="padding:24px 32px;border-top:1px solid ${background};font-size:12px;line-height:1.5;color:${textColor};opacity:.7">${escapeHtml(input.physicalAddress)}<br/><a href="{{unsubscribe_url}}" style="color:${textColor}">Unsubscribe</a></td></tr></table></td></tr></table></body></html>`;
 }

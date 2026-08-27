@@ -208,7 +208,9 @@ export async function POST(
       .eq("workspace_id", input.workspaceId);
     const messaging = plan.content.filter((item) => messagingChannels.has(item.channel));
     for (const item of messaging) {
-      const row = itemRows?.find((candidate) => candidate.channel_key === item.channel && candidate.current_version_id);
+      const row = itemRows?.find(
+        (candidate) => candidate.id === item.id && candidate.current_version_id,
+      );
       if (!row?.current_version_id || !item.accountId || !item.messaging?.audienceId)
         throw new Error(`Messaging delivery for ${item.channel} is incomplete.`);
       const batchId = crypto.randomUUID();
@@ -236,7 +238,7 @@ export async function POST(
     for (const item of organic) {
       const row = itemRows?.find(
         (candidate) =>
-          candidate.channel_key === item.channel &&
+          candidate.id === item.id &&
           candidate.current_version_id,
       );
       if (!row?.current_version_id || !item.accountId)

@@ -5,7 +5,7 @@
 - Supabase Auth entry, invite-only workspace creation, memberships, roles, RLS, private Storage, audit events, credential encryption, and global platform readiness
 - Empty production state with all Northstar/demo sessions, D1/R2 bindings, runtime mocks, mock AI, and seeded metrics removed
 - Five-destination application shell and four-tab campaign workspace
-- Twelve versioned V1 template manifests with channel-shaped example previews
+- Twelve versioned tactic manifests with 4–8 timed steps, complete-sequence previews, editable design blocks, real product substitution, email/SMS layouts, carousels, and channel-specific schedules
 - Real product/service records, private image upload, OpenAI image moderation, safe website suggestions, and explicit confirmation
 - OpenAI strict-schema campaign planning with no fallback
 - Exact Facebook/Instagram/TikTok/LinkedIn/Meta/Google/Reddit/ChatGPT preview fields, including carousel slides, account, budget, URL, targeting, and schedule

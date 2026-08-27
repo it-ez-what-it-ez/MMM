@@ -29,9 +29,15 @@ The migration covers profiles, workspaces, memberships, invitations, brand profi
 
 There are no customer seeds. The bundled template manifests are versioned application artifacts and are upserted into the global template table when first used.
 
+## Tactic engine
+
+Templates are versioned tactics rather than single creative cards. Each manifest contains an ordered set of channel steps with a stage, day offset, send time, account eligibility, copy, carousel recipe, and editable design scene. The gallery exposes the complete sequence before selection. After the marketer resolves a real product/service, offer, URL, channels, audience, and start date, the tactic editor shows every email, SMS, organic post, search ad, display creative, and paid ad in its native preview shape.
+
+The editor stores colors, layout, block order/visibility, copy, carousel slides, and exact schedule in the campaign plan and immutable content-version copy. Content items retain independent UUIDs even when several steps use the same channel; queue and publish records bind to that item/version identity rather than a channel name. Final image frames and SendGrid HTML are rendered from the approved design state, while required unsubscribe and physical-address elements cannot be removed.
+
 ## Campaign and approval invariants
 
-- A campaign plan contains exact channel copy, resolved media IDs, carousel slides, destination URL, target summary, selected account, currency, budget, and dates.
+- A campaign plan contains exact channel copy, resolved media IDs, carousel slides, tactic/design metadata, destination URL, target summary, selected account, currency, budget, and per-step dates.
 - Every uploaded subject layer has `preserveOriginal: true`; optional generation is limited to backgrounds.
 - Approval is rejected while any unresolved field exists, any destination account is missing, any non-Search creative lacks media, or selected media has not passed moderation.
 - Approved content versions are immutable. Editing must create a new version and return the item to draft, invalidating approval.
