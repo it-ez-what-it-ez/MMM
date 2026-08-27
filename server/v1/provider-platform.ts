@@ -29,7 +29,9 @@ function hasEnvironment(provider: ProviderKey) {
   switch (provider) {
     case "meta_business":
       return Boolean(
-        process.env.META_CLIENT_ID && process.env.META_CLIENT_SECRET,
+        process.env.META_CLIENT_ID &&
+          process.env.META_CLIENT_SECRET &&
+          process.env.META_LOGIN_CONFIGURATION_ID,
       );
     case "google_ads":
       return Boolean(

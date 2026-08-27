@@ -69,7 +69,7 @@ export async function GET(
         pkce_verifier_ciphertext: encryptedVerifier
           ? JSON.stringify(encryptedVerifier)
           : null,
-        redirect_path: "/app/manage/connections",
+        redirect_path: `/app/manage/connections/${provider}`,
         expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
       });
     if (error) throw error;
@@ -87,9 +87,20 @@ export async function GET(
       target.searchParams.set("response_type", "code");
       target.searchParams.set(
         "scope",
-        config.scopes.join(provider === "reddit_ads" ? " " : ","),
+        config.scopes.join(
+          provider === "reddit_ads" || provider === "linkedin_pages"
+            ? " "
+            : ",",
+        ),
       );
       target.searchParams.set("state", state);
+    }
+    if (provider === "meta_business") {
+      target.searchParams.set(
+        "config_id",
+        process.env.META_LOGIN_CONFIGURATION_ID ?? "",
+      );
+      target.searchParams.set("override_default_response_type", "true");
     }
     if (provider === "google_ads" || provider === "ga4") {
       target.searchParams.set("access_type", "offline");

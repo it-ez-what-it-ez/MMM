@@ -22,7 +22,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const protocol =
     requestHeaders.get("x-forwarded-proto") ??
     (host.startsWith("localhost") ? "http" : "https");
-  const socialImage = `${protocol}://${host}/growthos-social-preview-v2.png`;
+  const socialImage = `${protocol}://${host}/growthos-social-preview-v3.png`;
 
   return {
     title: "GrowthOS — Marketing, orchestrated",
@@ -38,7 +38,7 @@ export async function generateMetadata(): Promise<Metadata> {
           url: socialImage,
           width: 1730,
           height: 909,
-          alt: "GrowthOS marketing orchestration workflow",
+          alt: "GrowthOS connect, verify, and launch workflow",
         },
       ],
     },

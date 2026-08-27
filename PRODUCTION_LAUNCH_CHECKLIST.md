@@ -2,11 +2,13 @@
 
 GrowthOS contains no runtime mock providers. A connection button is exposed only when its environment, provider review, webhook/callback verification, smoke test, and kill switch say it is usable.
 
+Use the customer-facing sequence and operator/customer responsibility split in [PROVIDER_ONBOARDING.md](./PROVIDER_ONBOARDING.md) for every design-partner onboarding call.
+
 ## Accounts the GrowthOS operator must create
 
 - Three Supabase projects: development, staging, and production. Apply every migration in `supabase/migrations` and deploy every function in `supabase/functions`.
 - An OpenAI API project for campaign planning, copy, image backgrounds, moderation, and webhooks.
-- A verified Meta Business and reviewed Meta application.
+- A verified Meta Business, reviewed Meta application, and reviewed Facebook Login for Business configuration.
 - A Google Cloud OAuth application, Google Ads manager account, and production Google Ads developer token.
 - TikTok for Business and TikTok developer applications with the Marketing and Content Posting products approved.
 - A verified Reddit Business administrator account and approved Ads API application.
@@ -26,7 +28,7 @@ For the design-partner beta, each customer owns provider billing, accounts, dest
 1. Create or use a Twilio account and complete business verification.
 2. Create a Messaging Service and add an appropriate sender.
 3. For application-to-person messages to US recipients over a US 10DLC number, register the business, brand, and campaign for A2P 10DLC. GrowthOS blocks US delivery until the service reports `VERIFIED`.
-4. After GrowthOS creates the connection, configure the Messaging Service inbound webhook as `https://YOUR_DOMAIN/api/v1/webhooks/twilio/CONNECTION_ID`. Status callbacks are attached automatically.
+4. Leave **Configure the signed GrowthOS inbound STOP webhook** enabled during connection. GrowthOS updates the Messaging Service to `https://YOUR_DOMAIN/api/v1/webhooks/twilio/CONNECTION_ID` and verifies it during the live health check. Status callbacks are attached automatically. If the customer declines automatic configuration, they must configure the same URL manually before SMS is marked ready.
 5. Create a restricted API key. In GrowthOS enter the Account SID, API Key SID, API Key secret, Auth Token (webhook validation only), and Messaging Service SID.
 
 Canadian businesses can use a Canadian Business Number in supported A2P onboarding. US A2P campaign review is external and can take weeks, so submit it before inviting customers.

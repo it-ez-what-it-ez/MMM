@@ -25,7 +25,7 @@ Organic destinations:
 
 WhatsApp, video, native lead forms, ecommerce catalogs, CRM/CDP sync, paid LinkedIn, and other ad networks are deliberately excluded.
 
-Before onboarding customers, complete [PRODUCTION_LAUNCH_CHECKLIST.md](./PRODUCTION_LAUNCH_CHECKLIST.md). Provider approvals, verified senders, production secrets, compliance registrations, and real smoke tests are external launch requirements; source code cannot grant them.
+Before onboarding customers, complete [PROVIDER_ONBOARDING.md](./PROVIDER_ONBOARDING.md) and [PRODUCTION_LAUNCH_CHECKLIST.md](./PRODUCTION_LAUNCH_CHECKLIST.md). Provider approvals, verified senders, production secrets, compliance registrations, and real smoke tests are external launch requirements; source code cannot grant them.
 
 ## Production stack
 
@@ -90,6 +90,8 @@ Without the Supabase variables, `/` intentionally shows a production-setup gate 
 ## Provider onboarding
 
 GrowthOS must own an approved developer application for every OAuth provider. The customer's account does not replace the platform application.
+
+The in-app setup center uses one real flow across paid ads, organic social, analytics, email, and SMS: prepare prerequisites, authorize, select exact destinations, and run a live provider verification. OAuth callbacks return directly to destination selection. The UI never equates a token with a production-ready channel.
 
 For each environment:
 

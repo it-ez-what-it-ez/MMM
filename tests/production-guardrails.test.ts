@@ -124,6 +124,24 @@ describe("database isolation", () => {
     expect(editRoute).toContain('status: "draft"');
   });
 
+  it("continues OAuth into destination selection and uses live connection checks", () => {
+    const oauthStart = readFileSync(
+      join(root, "app/api/v1/oauth/[provider]/start/route.ts"),
+      "utf8",
+    );
+    expect(oauthStart).toContain(
+      "redirect_path: `/app/manage/connections/${provider}`",
+    );
+    expect(oauthStart).toContain('"config_id"');
+    expect(oauthStart).toContain('provider === "linkedin_pages"');
+    const healthRoute = readFileSync(
+      join(root, "app/api/v1/connections/[id]/health/route.ts"),
+      "utf8",
+    );
+    expect(healthRoute).toContain("runConnectionHealth");
+    expect(healthRoute).toContain('action: "provider.health_checked"');
+  });
+
   it("installs consent-first durable email and SMS delivery", () => {
     for (const table of ["contacts", "contact_lists", "communication_consents", "consent_events", "suppressions", "message_batches", "message_deliveries", "message_events"])
       expect(messagingMigration).toContain(`create table public.${table}`);
@@ -132,6 +150,7 @@ describe("database isolation", () => {
     expect(readFileSync(join(root, "app/api/v1/internal/send-messages/route.ts"), "utf8")).toContain("readMessageQueue");
     expect(readFileSync(join(root, "app/api/v1/webhooks/twilio/[connectionId]/route.ts"), "utf8")).toContain("validateTwilioSignature");
     expect(readFileSync(join(root, "app/api/v1/webhooks/sendgrid/[connectionId]/route.ts"), "utf8")).toContain("validateSendGridSignature");
+    expect(readFileSync(join(root, "app/api/v1/connections/twilio/route.ts"), "utf8")).toContain("InboundRequestUrl");
   });
 
   it("supports audited per-content decisions and automatic unscheduling", () => {

@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { encryptCredential } from "@/server/v1/credentials";
 import { authorizationErrorResponse, requireApiUser, requireWorkspaceRole } from "@/server/v1/auth";
 import { getProviderReadiness } from "@/server/v1/provider-platform";
+import { getAppOrigin } from "@/lib/supabase/config";
 
 const schema = z.object({
   workspaceId: z.string().uuid(),
@@ -11,14 +12,22 @@ const schema = z.object({
   apiKeySecret: z.string().min(20).max(200),
   authToken: z.string().min(20).max(200),
   messagingServiceSid: z.string().regex(/^MG[0-9a-f]{32}$/i),
+  configureInboundWebhook: z.boolean().default(true),
 });
 
 function basic(sid: string, secret: string) {
   return `Basic ${Buffer.from(`${sid}:${secret}`).toString("base64")}`;
 }
 
-async function twilioJson(url: string, authorization: string) {
-  const response = await fetch(url, { headers: { Authorization: authorization, Accept: "application/json" } });
+async function twilioJson(url: string, authorization: string, init: RequestInit = {}) {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      Authorization: authorization,
+      Accept: "application/json",
+      ...init.headers,
+    },
+  });
   const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok)
     throw new Error(typeof body.message === "string" ? body.message : `Twilio returned ${response.status}.`);
@@ -53,6 +62,36 @@ export async function POST(request: Request) {
     const admin = getSupabaseAdmin();
     const existing = await admin.from("provider_connections").select("id").eq("workspace_id", input.workspaceId).eq("provider_key", "twilio_messaging").eq("external_user_id", input.accountSid).maybeSingle();
     const connectionId = existing.data?.id ?? crypto.randomUUID();
+    const inboundWebhookUrl = `${getAppOrigin()}/api/v1/webhooks/twilio/${connectionId}`;
+    if (input.configureInboundWebhook)
+      await twilioJson(
+        `https://messaging.twilio.com/v1/Services/${input.messagingServiceSid}`,
+        authorization,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            InboundRequestUrl: inboundWebhookUrl,
+            InboundMethod: "POST",
+          }),
+        },
+      );
+    const inboundWebhookConfigured =
+      input.configureInboundWebhook ||
+      (service.inbound_request_url === inboundWebhookUrl &&
+        String(service.inbound_method ?? "POST").toUpperCase() === "POST");
+    const [{ data: messagingSettings }, { data: workspace }] = await Promise.all([
+      admin.from("messaging_settings").select("default_country").eq("workspace_id", input.workspaceId).maybeSingle(),
+      admin.from("workspaces").select("currency").eq("id", input.workspaceId).single(),
+    ]);
+    const requiresUsA2p =
+      (messagingSettings?.default_country ??
+        (workspace?.currency === "CAD" ? "CA" : "US")) === "US";
+    const healthError = !inboundWebhookConfigured
+      ? { code: "inbound_webhook_missing", message: "The signed GrowthOS inbound STOP webhook is not configured." }
+      : requiresUsA2p && a2pStatus !== "VERIFIED"
+        ? { code: "usa2p_not_verified", status: a2pStatus }
+        : null;
     const encrypted = await encryptCredential({
       accountSid: input.accountSid,
       apiKeySid: input.apiKeySid,
@@ -68,7 +107,7 @@ export async function POST(request: Request) {
       external_user_id: input.accountSid,
       granted_scopes: ["messages:create", "messages:read"],
       health_checked_at: new Date().toISOString(),
-      health_error: a2pStatus === "VERIFIED" ? null : { code: "usa2p_not_verified", status: a2pStatus },
+      health_error: healthError,
       connected_by: user.id,
     });
     if (connectionError) throw connectionError;
@@ -88,12 +127,12 @@ export async function POST(request: Request) {
       account_type: "messaging_service",
       name: String(service.friendly_name ?? "Twilio Messaging Service"),
       billing_status: String(account.status ?? "unknown"),
-      capabilities: { sms: true, statusCallbacks: true, inboundOptOut: true, usa2pCampaignStatus: a2pStatus },
+      capabilities: { sms: true, statusCallbacks: true, inboundOptOut: true, inboundWebhookConfigured, inboundWebhookUrl: inboundWebhookConfigured ? inboundWebhookUrl : null, usa2pCampaignStatus: a2pStatus },
       selected: true,
     }, { onConflict: "connection_id,external_id,account_type" }).select("id").single();
     if (accountError) throw accountError;
     await admin.from("audit_events").insert({ id: auditEventId, workspace_id: input.workspaceId, actor_id: user.id, action: "provider.authorized", resource_type: "provider_connection", resource_id: connectionId, metadata: { operationId, provider: "twilio_messaging", messagingServiceSid: input.messagingServiceSid, usa2pCampaignStatus: a2pStatus } });
-    return Response.json({ ok: true, data: { connectionId, providerAccountId: providerAccount.id, accountName: account.friendly_name, messagingServiceName: service.friendly_name, usa2pCampaignStatus: a2pStatus }, operationId, auditEventId });
+    return Response.json({ ok: true, data: { connectionId, providerAccountId: providerAccount.id, accountName: account.friendly_name, messagingServiceName: service.friendly_name, usa2pCampaignStatus: a2pStatus, inboundWebhookConfigured }, operationId, auditEventId });
   } catch (error) {
     if (error instanceof z.ZodError)
       return Response.json({ ok: false, errors: error.issues.map((issue) => ({ code: "validation", field: issue.path.join("."), message: issue.message, recoverable: true })), operationId, auditEventId }, { status: 400 });

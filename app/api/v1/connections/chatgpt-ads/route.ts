@@ -88,6 +88,7 @@ export async function POST(request: Request) {
         external_user_id: account.id,
         granted_scopes: ["advertiser_api"],
         health_checked_at: new Date().toISOString(),
+        health_error: null,
         connected_by: user.id,
       });
     if (connectionError) throw connectionError;

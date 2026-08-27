@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     if (typeof signed.public_key !== "string") throw new Error("SendGrid did not enable signed Event Webhooks.");
 
     const encrypted = await encryptCredential({ apiKey: input.apiKey, fromName: input.fromName, fromAddress: input.fromAddress, replyToAddress: input.replyToAddress ?? null, unsubscribeGroupId: input.unsubscribeGroupId, eventWebhookPublicKey: signed.public_key });
-    const { error: connectionError } = await admin.from("provider_connections").upsert({ id: connectionId, workspace_id: input.workspaceId, provider_key: "sendgrid_email", status: "connected", external_user_id: externalUserId, granted_scopes: ["mail.send", "sender.verify", "event.webhook"], health_checked_at: new Date().toISOString(), connected_by: user.id });
+    const { error: connectionError } = await admin.from("provider_connections").upsert({ id: connectionId, workspace_id: input.workspaceId, provider_key: "sendgrid_email", status: "connected", external_user_id: externalUserId, granted_scopes: ["mail.send", "sender.verify", "event.webhook"], health_checked_at: new Date().toISOString(), health_error: null, connected_by: user.id });
     if (connectionError) throw connectionError;
     const { error: credentialError } = await admin.schema("private").from("provider_credentials").upsert({ connection_id: connectionId, ciphertext: encrypted.ciphertext, iv: encrypted.iv, auth_tag: encrypted.authTag, key_version: encrypted.keyVersion });
     if (credentialError) throw credentialError;

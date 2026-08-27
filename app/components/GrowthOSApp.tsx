@@ -50,7 +50,13 @@ import {
   resolveTemplateText,
 } from "@/lib/v1/templates";
 import { buildCampaignEmailHtml, smsSegmentCount } from "@/lib/v1/messaging";
+import { deriveProviderSetup } from "@/lib/v1/connection-onboarding";
 import { TacticEditor } from "./TacticEditor";
+import {
+  ConnectionsSetupCenter,
+  ProviderSetupPage,
+  isSetupProvider,
+} from "./ConnectionOnboarding";
 
 type Workspace = {
   id: string;
@@ -98,6 +104,9 @@ type ProviderConnection = {
   provider_key: ProviderKey;
   status: string;
   health_checked_at: string | null;
+  health_error: Record<string, unknown> | null;
+  granted_scopes: string[];
+  token_expires_at: string | null;
 };
 type ProviderAccount = {
   id: string;
@@ -106,6 +115,8 @@ type ProviderAccount = {
   name: string;
   account_type: string;
   currency: string | null;
+  timezone: string | null;
+  billing_status: string | null;
   selected: boolean;
   capabilities: Record<string, unknown>;
 };
@@ -436,9 +447,11 @@ function routeTitle(path: string) {
 export function GrowthOSApp({
   initialPath,
   initialUser,
+  initialConnectionNotice,
 }: {
   initialPath: string;
   initialUser: Pick<User, "id" | "email" | "user_metadata">;
+  initialConnectionNotice?: { type: "success" | "error"; message: string };
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [mobileNav, setMobileNav] = useState(false);
@@ -522,12 +535,12 @@ export function GrowthOSApp({
         .order("created_at"),
       supabase
         .from("provider_connections")
-        .select("id,provider_key,status,health_checked_at")
+        .select("id,provider_key,status,health_checked_at,health_error,granted_scopes,token_expires_at")
         .eq("workspace_id", joined.id),
       supabase
         .from("provider_accounts")
         .select(
-          "id,provider_key,external_id,name,account_type,currency,selected,capabilities",
+          "id,provider_key,external_id,name,account_type,currency,timezone,billing_status,selected,capabilities",
         )
         .eq("workspace_id", joined.id),
       supabase
@@ -660,30 +673,44 @@ export function GrowthOSApp({
     const connectionMatch = initialPath.match(
       /^\/app\/manage\/connections\/([^/]+)$/,
     );
-    if (connectionMatch)
+    if (connectionMatch && isSetupProvider(connectionMatch[1]))
       return (
-        <ConnectionAccountPage
+        <ProviderSetupPage
           workspace={workspace}
-          provider={connectionMatch[1] as ProviderKey}
-          accounts={accounts.filter(
-            (account) => account.provider_key === connectionMatch[1],
+          provider={connectionMatch[1]}
+          connections={connections}
+          accounts={accounts}
+          readiness={readiness}
+          messagingIdentityComplete={Boolean(
+            messagingSettings?.legal_business_name &&
+              messagingSettings.physical_address,
           )}
-          readiness={readiness.find(
-            (item) => item.provider === connectionMatch[1],
-          )}
-          connectionId={connections.find(
-            (item) => item.provider_key === connectionMatch[1] && item.status === "connected",
-          )?.id}
+          smsRequiresUsA2p={
+            (messagingSettings?.default_country ??
+              (workspace.currency === "CAD" ? "CA" : "US")) === "US"
+          }
+          canManage={["owner", "admin"].includes(role)}
+          connectionNotice={initialConnectionNotice}
           onRefresh={loadWorkspace}
         />
       );
     if (initialPath.startsWith("/app/manage/connections"))
       return (
-        <ConnectionsPage
+        <ConnectionsSetupCenter
           workspace={workspace}
           connections={connections}
           accounts={accounts}
           readiness={readiness}
+          messagingIdentityComplete={Boolean(
+            messagingSettings?.legal_business_name &&
+              messagingSettings.physical_address,
+          )}
+          smsRequiresUsA2p={
+            (messagingSettings?.default_country ??
+              (workspace.currency === "CAD" ? "CA" : "US")) === "US"
+          }
+          canManage={["owner", "admin"].includes(role)}
+          connectionNotice={initialConnectionNotice}
         />
       );
     if (initialPath.startsWith("/app/manage/team"))
@@ -707,6 +734,8 @@ export function GrowthOSApp({
         products={products}
         connections={connections}
         accounts={accounts}
+        readiness={readiness}
+        messagingSettings={messagingSettings}
       />
     );
   })();
@@ -1032,13 +1061,45 @@ function HomePage({
   products,
   connections,
   accounts,
+  readiness,
+  messagingSettings,
 }: {
   workspace: Workspace;
   campaigns: Campaign[];
   products: ProductService[];
   connections: ProviderConnection[];
   accounts: ProviderAccount[];
+  readiness: ProviderReadiness[];
+  messagingSettings: MessagingSettings | null;
 }) {
+  const readyProviders = Object.keys(providerCapabilities).filter((value) => {
+    const provider = value as ProviderKey;
+    const connection = connections.find((item) => item.provider_key === provider);
+    const platform = readiness.find((item) => item.provider === provider);
+    return deriveProviderSetup({
+      provider,
+      platformReady: Boolean(platform?.ready),
+      platformReason: platform?.reason,
+      connection: connection
+        ? { status: connection.status, healthError: connection.health_error }
+        : null,
+      accounts: accounts
+        .filter((account) => account.provider_key === provider)
+        .map((account) => ({
+          accountType: account.account_type,
+          selected: account.selected,
+          billingStatus: account.billing_status,
+          capabilities: account.capabilities,
+        })),
+      messagingIdentityComplete: Boolean(
+        messagingSettings?.legal_business_name &&
+          messagingSettings.physical_address,
+      ),
+      smsRequiresUsA2p:
+        (messagingSettings?.default_country ??
+          (workspace.currency === "CAD" ? "CA" : "US")) === "US",
+    }).status === "ready";
+  });
   const attention = !products.length
     ? {
         title: `Add your first ${workspace.business_type === "ecommerce" ? "product" : "service"}`,
@@ -1046,13 +1107,15 @@ function HomePage({
         href: "/app/manage/brand",
         action: "Add brand & assets",
       }
-    : !accounts.some((account) => account.selected)
+    : !readyProviders.length
       ? {
-          title: "Connect a destination",
+          title: accounts.some((account) => account.selected)
+            ? "Finish channel setup"
+            : "Connect your first channel",
           detail:
-            "Choose the account GrowthOS may create drafts or publish through.",
+            "Authorize the real provider account, choose destinations, and pass a live readiness check.",
           href: "/app/manage/connections",
-          action: "Connect account",
+          action: "Open channel setup",
         }
       : !campaigns.length
         ? {
@@ -1149,9 +1212,9 @@ function HomePage({
           <small>Real workspace records</small>
         </div>
         <div>
-          <span>Destinations</span>
-          <b>{accounts.filter((a) => a.selected).length}</b>
-          <small>Selected accounts</small>
+          <span>Ready channels</span>
+          <b>{readyProviders.length}</b>
+          <small>Verified for use</small>
         </div>
         <div>
           <span>Connection health</span>
@@ -4674,6 +4737,24 @@ function BrandAssetsPage({
           />
         )}
       </div>
+      {products.some((product) =>
+        media.some((asset) => asset.product_service_id === product.id),
+      ) && (
+        <section className="setup-next-card">
+          <span><Check size={20} /></span>
+          <div>
+            <p className="kicker">Brand step complete</p>
+            <h2>Connect the first channel</h2>
+            <p>
+              Next, authorize a real provider account, choose the destination,
+              and run its live readiness check.
+            </p>
+          </div>
+          <a className="button primary" href="/app/manage/connections">
+            Continue setup <ArrowRight size={17} />
+          </a>
+        </section>
+      )}
     </>
   );
 }
@@ -4929,465 +5010,6 @@ function PlatformReadinessPage() {
             </article>
           ))}
         </div>
-      )}
-    </>
-  );
-}
-
-function ConnectionsPage({
-  workspace,
-  connections,
-  accounts,
-  readiness,
-}: {
-  workspace: Workspace;
-  connections: ProviderConnection[];
-  accounts: ProviderAccount[];
-  readiness: ProviderReadiness[];
-}) {
-  const providers = Object.values(providerCapabilities);
-  return (
-    <>
-      <a className="back-link" href="/app/manage">
-        <ArrowLeft size={17} /> Manage
-      </a>
-      <PageHeader
-        title="Connections"
-        detail="Sign in on the provider’s own page, grant access, then choose the exact destination account."
-      />
-      <div className="connection-explainer">
-        <div>
-          <b>1</b>
-          <span>
-            <strong>Authorize</strong>
-            <small>You never share a provider password</small>
-          </span>
-        </div>
-        <ArrowRight size={18} />
-        <div>
-          <b>2</b>
-          <span>
-            <strong>Choose accounts</strong>
-            <small>Ad accounts, Pages, or profiles</small>
-          </span>
-        </div>
-        <ArrowRight size={18} />
-        <div>
-          <b>3</b>
-          <span>
-            <strong>Health check</strong>
-            <small>Scopes, billing, currency, and capabilities</small>
-          </span>
-        </div>
-      </div>
-      <div className="provider-grid">
-        {providers.map((provider) => {
-          const connection = connections.find(
-            (item) => item.provider_key === provider.provider,
-          );
-          const selected = accounts.filter(
-            (item) => item.provider_key === provider.provider && item.selected,
-          );
-          const platform = readiness.find(
-            (item) => item.provider === provider.provider,
-          );
-          const early =
-            provider.provider === "chatgpt_ads" ||
-            provider.provider.startsWith("tiktok");
-          const ready = Boolean(platform?.ready);
-          return (
-            <article className="provider-card" key={provider.provider}>
-              <header>
-                <span className={`provider-logo ${provider.provider}`}>
-                  {provider.label.slice(0, 1)}
-                </span>
-                <span
-                  className={`status ${connection?.status === "connected" ? "ready" : "neutral"}`}
-                >
-                  {connection?.status === "connected"
-                    ? "Connected"
-                    : ready
-                      ? "Ready to connect"
-                      : early
-                        ? "Early access"
-                        : "Unavailable"}
-                </span>
-              </header>
-              <h2>{provider.label}</h2>
-              <p>
-                {connection
-                  ? (provider.connectionLimitations ??
-                    `Publish and report through ${provider.label}.`)
-                  : ready
-                    ? (provider.connectionLimitations ??
-                      `Publish and report through ${provider.label}.`)
-                    : (platform?.reason ??
-                      "Platform readiness has not been verified.")}
-              </p>
-              {selected.length > 0 && (
-                <div className="selected-account">
-                  <Check size={15} />
-                  {selected.map((item) => item.name).join(", ")}
-                </div>
-              )}
-              {connection?.status === "connected" ? (
-                <a
-                  className="button secondary"
-                  href={`/app/manage/connections/${provider.provider}`}
-                >
-                  Manage accounts
-                </a>
-              ) : ready ? (
-                <a
-                  className="button secondary"
-                  href={
-                    provider.provider === "chatgpt_ads"
-                      ? `/app/manage/connections/chatgpt_ads`
-                      : ["twilio_messaging", "sendgrid_email"].includes(provider.provider)
-                        ? `/app/manage/connections/${provider.provider}`
-                      : `/api/v1/oauth/${provider.provider}/start?workspaceId=${workspace.id}`
-                  }
-                >
-                  Connect account <ArrowRight size={16} />
-                </a>
-              ) : (
-                <button className="button secondary" disabled>
-                  {early ? "Early access — unavailable" : "Not available yet"}
-                </button>
-              )}
-            </article>
-          );
-        })}
-      </div>
-      <div className="notice info">
-        <ShieldCheck size={18} />
-        <div>
-          <strong>Connection buttons are readiness-gated</strong>
-          <p>
-            A button activates only after the GrowthOS provider application,
-            callback, review, and latest smoke test are genuinely ready.
-          </p>
-        </div>
-      </div>
-    </>
-  );
-}
-
-function ConnectionAccountPage({
-  workspace,
-  provider,
-  accounts,
-  readiness,
-  connectionId,
-  onRefresh,
-}: {
-  workspace: Workspace;
-  provider: ProviderKey;
-  accounts: ProviderAccount[];
-  readiness?: ProviderReadiness;
-  connectionId?: string;
-  onRefresh: () => Promise<void>;
-}) {
-  const [selected, setSelected] = useState(
-    accounts.filter((account) => account.selected).map((account) => account.id),
-  );
-  const [metaPageAccountId, setMetaPageAccountId] = useState(() => {
-    const ad = accounts.find(
-      (account) =>
-        account.account_type === "ad_account" &&
-        account.selected &&
-        typeof account.capabilities.pageExternalId === "string",
-    );
-    return (
-      accounts.find(
-        (account) =>
-          account.account_type === "facebook_page" &&
-          account.external_id === ad?.capabilities.pageExternalId,
-      )?.id ?? ""
-    );
-  });
-  const [apiKey, setApiKey] = useState("");
-  const [twilio, setTwilio] = useState({ accountSid: "", apiKeySid: "", apiKeySecret: "", authToken: "", messagingServiceSid: "" });
-  const [sendgrid, setSendgrid] = useState({ apiKey: "", fromName: workspace.name, fromAddress: "", replyToAddress: "", unsubscribeGroupId: "" });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const label = providerCapabilities[provider]?.label ?? provider;
-  async function saveAccounts() {
-    setBusy(true);
-    setError("");
-    try {
-      const response = await authenticatedFetch("/api/v1/provider-accounts", {
-        method: "PATCH",
-        body: JSON.stringify({
-          workspaceId: workspace.id,
-          providerKey: provider,
-          selectedAccountIds: selected,
-          metaPageAccountId:
-            provider === "meta_business" ? metaPageAccountId || null : null,
-        }),
-      });
-      const result = (await response.json()) as {
-        ok: boolean;
-        errors?: Array<{ message: string }>;
-      };
-      if (!result.ok)
-        throw new Error(
-          result.errors?.[0]?.message ?? "Account selection failed.",
-        );
-      await onRefresh();
-    } catch (cause) {
-      setError(
-        cause instanceof Error ? cause.message : "Account selection failed.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function connectChatGPT() {
-    setBusy(true);
-    setError("");
-    try {
-      const response = await authenticatedFetch(
-        "/api/v1/connections/chatgpt-ads",
-        {
-          method: "POST",
-          body: JSON.stringify({ workspaceId: workspace.id, apiKey }),
-        },
-      );
-      const result = (await response.json()) as {
-        ok: boolean;
-        errors?: Array<{ message: string }>;
-      };
-      if (!result.ok)
-        throw new Error(
-          result.errors?.[0]?.message ?? "ChatGPT Ads connection failed.",
-        );
-      setApiKey("");
-      await onRefresh();
-      window.location.assign("/app/manage/connections");
-    } catch (cause) {
-      setError(
-        cause instanceof Error
-          ? cause.message
-          : "ChatGPT Ads connection failed.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  async function connectMessagingProvider() {
-    setBusy(true); setError("");
-    try {
-      const isTwilio = provider === "twilio_messaging";
-      const response = await authenticatedFetch(isTwilio ? "/api/v1/connections/twilio" : "/api/v1/connections/sendgrid", {
-        method: "POST",
-        body: JSON.stringify(isTwilio ? { workspaceId: workspace.id, ...twilio } : { workspaceId: workspace.id, ...sendgrid, replyToAddress: sendgrid.replyToAddress || null, unsubscribeGroupId: Number(sendgrid.unsubscribeGroupId) }),
-      });
-      const result = await response.json() as { ok: boolean; errors?: Array<{ message: string }> };
-      if (!result.ok) throw new Error(result.errors?.map((entry) => entry.message).join(" · ") ?? `${label} connection failed.`);
-      await onRefresh(); window.location.assign("/app/manage/connections");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : `${label} connection failed.`); }
-    finally { setBusy(false); }
-  }
-  async function disconnect() {
-    if (!connectionId) return;
-    if (!window.confirm(`Disconnect ${label}? Scheduled and live provider resources are not deleted.`)) return;
-    setBusy(true);
-    setError("");
-    try {
-      const response = await authenticatedFetch(`/api/v1/connections/${connectionId}`, {
-        method: "DELETE",
-        body: JSON.stringify({ workspaceId: workspace.id }),
-      });
-      const result = (await response.json()) as { ok: boolean; errors?: Array<{ message: string }> };
-      if (!result.ok) throw new Error(result.errors?.[0]?.message ?? "Disconnect failed.");
-      await onRefresh();
-      window.location.assign("/app/manage/connections");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Disconnect failed.");
-      setBusy(false);
-    }
-  }
-  if (provider === "chatgpt_ads" && !accounts.length)
-    return (
-      <>
-        <a className="back-link" href="/app/manage/connections">
-          <ArrowLeft size={17} /> Connections
-        </a>
-        <PageHeader
-          title="Connect ChatGPT Ads"
-          detail="OpenAI does not provide advertiser OAuth. Use the account-scoped key issued in Ads Manager."
-        />
-        {error && (
-          <div className="notice error">
-            <CircleAlert size={18} />
-            {error}
-          </div>
-        )}
-        <section className="panel key-connect">
-          <div className="panel-heading">
-            <div>
-              <h2>Advertiser API key</h2>
-              <p>
-                The key is verified against <code>GET /ad_account</code>,
-                encrypted server-side, and never returned to the browser.
-              </p>
-            </div>
-          </div>
-          <div>
-            <label>
-              Account-scoped API key
-              <input
-                type="password"
-                autoComplete="off"
-                value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
-                placeholder="Paste the key from OpenAI Ads Manager"
-              />
-            </label>
-            <button
-              className="button primary"
-              disabled={busy || !readiness?.ready || apiKey.length < 20}
-              onClick={() => void connectChatGPT()}
-            >
-              {busy ? (
-                <Loader2 className="spin" size={18} />
-              ) : (
-                <ShieldCheck size={18} />
-              )}
-              Verify and connect
-            </button>
-            {!readiness?.ready && (
-              <p className="muted">
-                {readiness?.reason ??
-                  "ChatGPT Ads partner access is not ready."}
-              </p>
-            )}
-          </div>
-        </section>
-      </>
-    );
-  if ((provider === "twilio_messaging" || provider === "sendgrid_email") && !accounts.length)
-    return <>
-      <a className="back-link" href="/app/manage/connections"><ArrowLeft size={17} /> Connections</a>
-      <PageHeader title={`Connect ${label}`} detail={provider === "twilio_messaging" ? "Use restricted Twilio API credentials. GrowthOS verifies the Messaging Service and A2P status without receiving your Twilio password." : "Use a restricted SendGrid key. GrowthOS verifies the sender, domain, unsubscribe group, and signed Event Webhook."} />
-      {error && <div className="notice error"><CircleAlert size={18} />{error}</div>}
-      <section className="panel key-connect"><div className="panel-heading"><div><h2>{provider === "twilio_messaging" ? "Twilio Messaging Service" : "SendGrid sending identity"}</h2><p>Credentials are encrypted server-side and never returned to the browser.</p></div></div>
-        {provider === "twilio_messaging" ? <div className="form-grid">
-          <label>Account SID<input autoComplete="off" value={twilio.accountSid} onChange={(event) => setTwilio({ ...twilio, accountSid: event.target.value })} placeholder="AC…" /></label>
-          <label>Messaging Service SID<input autoComplete="off" value={twilio.messagingServiceSid} onChange={(event) => setTwilio({ ...twilio, messagingServiceSid: event.target.value })} placeholder="MG…" /></label>
-          <label>API Key SID<input autoComplete="off" value={twilio.apiKeySid} onChange={(event) => setTwilio({ ...twilio, apiKeySid: event.target.value })} placeholder="SK…" /></label>
-          <label>API Key secret<input type="password" autoComplete="new-password" value={twilio.apiKeySecret} onChange={(event) => setTwilio({ ...twilio, apiKeySecret: event.target.value })} /></label>
-          <label className="span-2">Auth Token <small>Used only to validate Twilio-signed callbacks.</small><input type="password" autoComplete="new-password" value={twilio.authToken} onChange={(event) => setTwilio({ ...twilio, authToken: event.target.value })} /></label>
-        </div> : <div className="form-grid">
-          <label className="span-2">Restricted SendGrid API key<input type="password" autoComplete="new-password" value={sendgrid.apiKey} onChange={(event) => setSendgrid({ ...sendgrid, apiKey: event.target.value })} /></label>
-          <label>From name<input value={sendgrid.fromName} onChange={(event) => setSendgrid({ ...sendgrid, fromName: event.target.value })} /></label>
-          <label>Verified From address<input type="email" value={sendgrid.fromAddress} onChange={(event) => setSendgrid({ ...sendgrid, fromAddress: event.target.value })} /></label>
-          <label>Reply-to address<input type="email" value={sendgrid.replyToAddress} onChange={(event) => setSendgrid({ ...sendgrid, replyToAddress: event.target.value })} /></label>
-          <label>Unsubscribe group ID<input type="number" min="1" value={sendgrid.unsubscribeGroupId} onChange={(event) => setSendgrid({ ...sendgrid, unsubscribeGroupId: event.target.value })} /></label>
-        </div>}
-        <button className="button primary" disabled={busy || !readiness?.ready} onClick={() => void connectMessagingProvider()}>{busy ? <Loader2 className="spin" size={18} /> : <ShieldCheck size={18} />} Verify and connect</button>
-        {!readiness?.ready && <p className="muted">{readiness?.reason ?? "This provider has not passed the platform readiness gate."}</p>}
-      </section>
-    </>;
-  return (
-    <>
-      <a className="back-link" href="/app/manage/connections">
-        <ArrowLeft size={17} /> Connections
-      </a>
-      <PageHeader
-        title={`Choose ${label} destinations`}
-        detail="Only selected accounts can be used in campaign drafts or publishing."
-        action={
-          <button
-            className="button primary"
-            onClick={() => void saveAccounts()}
-            disabled={busy}
-          >
-            {busy ? (
-              <Loader2 className="spin" size={18} />
-            ) : (
-              <Check size={18} />
-            )}{" "}
-            Save selection
-          </button>
-        }
-      />
-      {error && (
-        <div className="notice error">
-          <CircleAlert size={18} />
-          {error}
-        </div>
-      )}
-      {provider === "twilio_messaging" && connectionId && (
-        <div className="notice info"><ShieldCheck size={18} /><div><strong>Inbound opt-out webhook</strong><p>Set the Messaging Service inbound request URL to <code>{`${process.env.NEXT_PUBLIC_APP_ORIGIN ?? ""}/api/v1/webhooks/twilio/${connectionId}`}</code>. GrowthOS verifies every Twilio signature before recording STOP.</p></div></div>
-      )}
-      <section className="panel account-list">
-        {provider === "meta_business" &&
-          selected.some((id) =>
-            accounts.some(
-              (account) => account.id === id && account.account_type === "ad_account",
-            ),
-          ) && (
-            <div className="account-assignment">
-              <label>
-                Facebook Page identity for selected ad accounts
-                <select
-                  value={metaPageAccountId}
-                  onChange={(event) => setMetaPageAccountId(event.target.value)}
-                >
-                  <option value="">Choose the exact Page</option>
-                  {accounts
-                    .filter((account) => account.account_type === "facebook_page")
-                    .map((account) => (
-                      <option key={account.id} value={account.id}>{account.name}</option>
-                    ))}
-                </select>
-              </label>
-              <p>The selected Page is the visible identity on Meta ads. GrowthOS never guesses this relationship.</p>
-            </div>
-          )}
-        {accounts.map((account) => (
-          <label key={account.id}>
-            <input
-              type="checkbox"
-              checked={selected.includes(account.id)}
-              onChange={() =>
-                setSelected((current) =>
-                  current.includes(account.id)
-                    ? current.filter((id) => id !== account.id)
-                    : [...current, account.id],
-                )
-              }
-            />
-            <span>
-              <strong>{account.name}</strong>
-              <small>
-                {account.account_type.replaceAll("_", " ")}{" "}
-                {account.currency ? `· ${account.currency}` : ""}
-              </small>
-            </span>
-            <StatusPill status={account.selected ? "selected" : "available"} />
-          </label>
-        ))}
-        {!accounts.length && (
-          <EmptyPage
-            title="No eligible accounts were discovered"
-            detail="The provider authorized successfully but did not return an account GrowthOS can use. Check your provider role and permissions, then reconnect."
-            inline
-          />
-        )}
-      </section>
-      {connectionId && (
-        <section className="danger-zone">
-          <div>
-            <h2>Disconnect {label}</h2>
-            <p>GrowthOS deletes its encrypted credential and deselects every destination. Existing provider resources remain in the provider account.</p>
-          </div>
-          <button className="button danger" disabled={busy} onClick={() => void disconnect()}>
-            Disconnect
-          </button>
-        </section>
       )}
     </>
   );
