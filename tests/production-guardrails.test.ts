@@ -30,6 +30,20 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe("production reset", () => {
+  it("allows real first-time email signup instead of requiring seed users", () => {
+    const authScreen = readFileSync(
+      join(root, "app/components/AuthScreen.tsx"),
+      "utf8",
+    );
+    const supabaseConfig = readFileSync(
+      join(root, "supabase/config.toml"),
+      "utf8",
+    );
+    expect(authScreen).toContain("shouldCreateUser: true");
+    expect(supabaseConfig).toContain("enable_signup = true");
+    expect(authScreen).not.toContain("shouldCreateUser: false");
+  });
+
   it("contains no runtime mock provider or seeded Northstar workspace", () => {
     const production = [
       ...sourceFiles(join(root, "app")),

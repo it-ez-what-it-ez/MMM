@@ -1,6 +1,6 @@
 # GrowthOS Production V1
 
-GrowthOS is an invite-only campaign creation and delivery product for US and Canadian businesses. A marketer can start from one of twelve curated bundles or an AI objective, resolve the campaign with real product/service media, inspect every channel-specific creative and delivery field, approve immutable versions, create paid provider resources paused, and explicitly launch. Email is delivered through Twilio SendGrid and SMS through Twilio Messaging Services, with explicit-consent lists, suppressions, signed callbacks, STOP/unsubscribe handling, and real delivery state.
+GrowthOS is an early-access campaign creation and delivery product for US and Canadian businesses. A marketer can create an account with Google or a verified email address, start from one of twelve curated bundles or an AI objective, resolve the campaign with real product/service media, inspect every channel-specific creative and delivery field, approve immutable versions, create paid provider resources paused, and explicitly launch. Email is delivered through Twilio SendGrid and SMS through Twilio Messaging Services, with explicit-consent lists, suppressions, signed callbacks, STOP/unsubscribe handling, and real delivery state.
 
 The template library is powered by a tactic engine. A template is a ready-to-edit, timed campaign sequence—not a placeholder card. The built-in editor exposes the real email layout, SMS body and segment count, every carousel slide, social/ad creative, responsive Search assets, account, URL, and schedule before the marketer saves or approves anything. Uploaded product/service media replaces the template subject without being redrawn.
 
@@ -73,11 +73,26 @@ Requirements: Node.js `>=22.13.0`, npm, and a Supabase development project. Do n
 
 4. Configure Supabase Auth:
 
-   - disable open sign-up;
+   - enable email signup and Google signup for the early-access environment;
    - enable Google and email magic links;
    - add `http://localhost:3000/auth/callback` locally and the exact staging/production callback URLs;
-   - configure Resend or another production SMTP provider before invitations are sent;
+   - configure Resend or another production SMTP provider before customer sign-in links and team invitations are sent;
    - use the platform admin API or Supabase dashboard to invite the first owner.
+
+   Google sign-in requires a Web application OAuth client in Google Auth
+   Platform. Configure these exact development values:
+
+   ```text
+   Authorized JavaScript origin: http://localhost:3000
+   Authorized redirect URI: https://YOUR_PROJECT_REF.supabase.co/auth/v1/callback
+   ```
+
+   Add the production GrowthOS origin as an additional JavaScript origin. The
+   Google callback remains the Supabase `/auth/v1/callback` URL. Save the Google
+   client ID and secret in **Supabase → Authentication → Sign In / Providers →
+   Google**, then enable the provider. GrowthOS reads Supabase's public auth
+   readiness endpoint and does not present Google as usable until Supabase
+   reports it enabled.
 
 5. Start the app.
 

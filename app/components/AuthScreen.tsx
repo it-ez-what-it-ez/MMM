@@ -4,20 +4,47 @@ import { useState } from "react";
 import { ArrowRight, Check, Mail, ShieldCheck, Sparkles } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/client";
 import { getAppOrigin } from "@/lib/supabase/config";
+import type { SupabaseAuthReadiness } from "@/lib/supabase/auth-readiness";
 
-export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
+export function AuthScreen({
+  authReadiness,
+  errorMessage,
+}: {
+  authReadiness: SupabaseAuthReadiness;
+  errorMessage?: string;
+}) {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
+  const [googleStatus, setGoogleStatus] = useState<"idle" | "opening">("idle");
   const [error, setError] = useState(errorMessage ?? "");
 
   async function signInWithGoogle() {
+    if (!authReadiness.googleEnabled) {
+      setError("Google sign-in is not enabled for this GrowthOS environment yet.");
+      return;
+    }
     setError("");
-    const { error: authError } =
-      await getBrowserSupabase().auth.signInWithOAuth({
+    setGoogleStatus("opening");
+    try {
+      const { data, error: authError } =
+        await getBrowserSupabase().auth.signInWithOAuth({
         provider: "google",
-        options: { redirectTo: `${getAppOrigin()}/auth/callback` },
+        options: {
+          redirectTo: `${getAppOrigin()}/auth/callback?next=/app`,
+          skipBrowserRedirect: true,
+        },
       });
-    if (authError) setError(authError.message);
+      if (authError) throw authError;
+      if (!data.url) throw new Error("Google did not return a secure sign-in URL.");
+      window.location.assign(data.url);
+    } catch (authError) {
+      setError(
+        authError instanceof Error
+          ? authError.message
+          : "Google sign-in could not be started.",
+      );
+      setGoogleStatus("idle");
+    }
   }
 
   async function sendMagicLink(event: React.FormEvent) {
@@ -27,8 +54,8 @@ export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
     const { error: authError } = await getBrowserSupabase().auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${getAppOrigin()}/auth/callback`,
-        shouldCreateUser: false,
+        emailRedirectTo: `${getAppOrigin()}/auth/callback?next=/app`,
+        shouldCreateUser: true,
       },
     });
     if (authError) {
@@ -50,7 +77,7 @@ export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
           <span>G</span>GrowthOS
         </a>
         <div className="auth-copy">
-          <p className="kicker">Invite-only design partner beta</p>
+          <p className="kicker">GrowthOS early access</p>
           <h1>From campaign idea to real delivery, in one calm workflow.</h1>
           <p>
             Choose a professionally designed template or let AI build a draft.
@@ -81,9 +108,10 @@ export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
             <Sparkles size={22} />
           </div>
           <p className="kicker">Welcome to GrowthOS</p>
-          <h2>Sign in to your workspace</h2>
+          <h2>Create your account or sign in</h2>
           <p className="muted">
-            You need an invitation from GrowthOS or your workspace owner.
+            Start with Google or a secure email link. New accounts continue
+            directly into workspace setup.
           </p>
           {error && (
             <div className="notice error" role="alert">
@@ -94,9 +122,27 @@ export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
             className="button google-button"
             onClick={signInWithGoogle}
             type="button"
+            disabled={!authReadiness.googleEnabled || googleStatus === "opening"}
           >
-            <span className="google-g">G</span> Continue with Google
+            <span className="google-g">G</span>{" "}
+            {googleStatus === "opening"
+              ? "Opening Google…"
+              : authReadiness.googleEnabled
+                ? "Continue with Google"
+                : "Google sign-in unavailable"}
           </button>
+          {!authReadiness.googleEnabled && (
+            <div className="notice info" role="status">
+              <ShieldCheck size={18} />
+              <div>
+                <strong>Google sign-in is awaiting provider setup</strong>
+                <p>
+                  GrowthOS will enable this automatically after the real Google
+                  OAuth client passes the Supabase readiness check.
+                </p>
+              </div>
+            </div>
+          )}
           <div className="or">
             <span />
             or
@@ -106,7 +152,10 @@ export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
             <div className="magic-sent">
               <Mail size={22} />
               <strong>Check your inbox</strong>
-              <p>We sent a secure sign-in link to {email}.</p>
+              <p>
+                We sent a secure link to {email}. It will create your account
+                if this is your first time using GrowthOS.
+              </p>
             </div>
           ) : (
             <form onSubmit={sendMagicLink} className="stack">
@@ -124,16 +173,21 @@ export function AuthScreen({ errorMessage }: { errorMessage?: string }) {
               <button
                 className="button primary"
                 type="submit"
-                disabled={status === "sending"}
+                disabled={status === "sending" || !authReadiness.emailEnabled}
               >
                 {status === "sending" ? (
                   "Sending…"
                 ) : (
                   <>
-                    Email me a sign-in link <ArrowRight size={17} />
+                    Continue with email <ArrowRight size={17} />
                   </>
                 )}
               </button>
+              {!authReadiness.emailEnabled && (
+                <p className="fine-print" role="status">
+                  Email sign-in is not enabled for this environment.
+                </p>
+              )}
             </form>
           )}
           <p className="fine-print">

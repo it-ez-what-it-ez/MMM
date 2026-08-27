@@ -14,7 +14,7 @@ Use the customer-facing sequence and operator/customer responsibility split in [
 - A verified Reddit Business administrator account and approved Ads API application.
 - A LinkedIn application with Community Management API access.
 - ChatGPT Advertiser API partner access. Ordinary OpenAI API access does not replace this.
-- Resend or another production SMTP provider for Supabase invitations and magic links.
+- Resend or another production SMTP provider for Supabase account creation, magic links, and team invitations.
 - Sentry projects and alerts for the app, callbacks, Edge Functions, and queues.
 
 Choose the permanent production domain before provider review. Configure exact production callback and webhook URLs; do not submit a temporary hostname and change it later.
@@ -63,7 +63,7 @@ Do not put unrelated businesses behind one ordinary SendGrid account. A GrowthOS
 ## Required acceptance tests before real users
 
 - RLS isolation between two real test workspaces.
-- Magic-link, Google login, invitations, session refresh, and logout.
+- First-time email signup, returning-user magic links, Google signup/login, team invitations, session refresh, and logout.
 - One paused production resource per paid adapter and one test destination per organic adapter.
 - Twilio: one opted-in test phone, sent/delivered callback, STOP callback, invalid signature, invalid number, A2P-blocked US recipient, and permission loss.
 - SendGrid: domain-authenticated From address, delivered/open/click event, one-click unsubscribe, hard bounce, spam complaint, invalid signature, revoked key, and webhook replay.
