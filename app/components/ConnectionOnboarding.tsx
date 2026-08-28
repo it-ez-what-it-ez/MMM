@@ -7,13 +7,17 @@ import {
   Check,
   CheckCircle2,
   CircleAlert,
+  Database,
   ExternalLink,
   KeyRound,
   Link2,
   Loader2,
   LockKeyhole,
+  Megaphone,
   MessageSquareText,
   RefreshCw,
+  Search,
+  Share2,
   ShieldCheck,
 } from "lucide-react";
 import { getBrowserSupabase } from "@/lib/supabase/client";
@@ -27,6 +31,13 @@ import {
   providerOnboarding,
   providerOnboardingOrder,
 } from "@/lib/v1/connection-onboarding";
+import {
+  integrationCatalog,
+  integrationCategories,
+  isIntegrationCategory,
+  providerPrimaryCategory,
+  type IntegrationCategoryKey,
+} from "@/lib/v1/integration-catalog";
 
 export type ConnectionWorkspace = {
   id: string;
@@ -72,6 +83,7 @@ type CommonProps = {
   smsRequiresUsA2p: boolean;
   canManage: boolean;
   connectionNotice?: { type: "success" | "error"; message: string };
+  initialCategory?: IntegrationCategoryKey;
 };
 
 async function authenticatedFetch(path: string, init: RequestInit = {}) {
@@ -125,33 +137,12 @@ function setupForProvider(
   });
 }
 
-const connectionSections: Array<{
-  title: string;
-  detail: string;
-  providers: ProviderKey[];
-}> = [
-  {
-    title: "Advertising",
-    detail: "Create provider resources paused, verify them, then launch only after final confirmation.",
-    providers: [
-      "meta_business",
-      "google_ads",
-      "tiktok_ads",
-      "reddit_ads",
-      "chatgpt_ads",
-    ],
-  },
-  {
-    title: "Organic social & measurement",
-    detail: "Publish through approved business profiles and keep analytics source labels intact.",
-    providers: ["tiktok_organic", "linkedin_pages", "ga4"],
-  },
-  {
-    title: "Email & SMS",
-    detail: "Verify sender identity, consent, compliance, and delivery callbacks before sending.",
-    providers: ["sendgrid_email", "twilio_messaging"],
-  },
-];
+const categoryIcons = {
+  data: Database,
+  advertising: Megaphone,
+  messaging: MessageSquareText,
+  social: Share2,
+} satisfies Record<IntegrationCategoryKey, typeof Database>;
 
 function ProviderMark({ provider }: { provider: ProviderKey }) {
   const label = providerCapabilities[provider].label;
@@ -173,34 +164,66 @@ function SetupStatus({ provider, setup }: { provider: ProviderKey; setup: Return
 }
 
 export function ConnectionsSetupCenter(props: CommonProps) {
+  const activeCategory = isIntegrationCategory(props.initialCategory)
+    ? props.initialCategory
+    : "data";
+  const [query, setQuery] = useState("");
   const setupRows = providerOnboardingOrder.map((provider) => ({
     provider,
     setup: setupForProvider(provider, props),
   }));
-  const readyCount = setupRows.filter((row) => row.setup.status === "ready").length;
-  const availableCount = setupRows.filter(
+  const connectedProviders = new Set(
+    props.connections
+      .filter((connection) =>
+        ["connected", "degraded"].includes(connection.status),
+      )
+      .map((connection) => connection.provider_key),
+  );
+  const category = integrationCategories.find(
+    (item) => item.key === activeCategory,
+  )!;
+  const categoryEntries = integrationCatalog.filter(
+    (entry) =>
+      entry.category === activeCategory &&
+      [entry.label, entry.description, ...entry.capabilities]
+        .join(" ")
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()),
+  );
+  const liveEntries = categoryEntries.filter(
+    (entry) => entry.availability !== "planned",
+  );
+  const plannedEntries = categoryEntries.filter(
+    (entry) => entry.availability === "planned",
+  );
+  const next = liveEntries
+    .filter((entry) => entry.provider)
+    .map((entry) => ({
+      entry,
+      setup: setupForProvider(entry.provider!, props),
+    }))
+    .find(
+      (row) =>
+        row.setup.status !== "ready" && row.setup.status !== "unavailable",
+    );
+  const availableProviderCount = setupRows.filter(
     (row) => row.setup.status !== "unavailable",
   ).length;
-  const next = setupRows.find(
-    (row) => row.setup.status !== "ready" && row.setup.status !== "unavailable",
-  );
   return (
     <>
-      <a className="back-link" href="/app/manage">
-        <ArrowLeft size={17} /> Manage
-      </a>
       <header className="page-header connection-page-header">
         <div>
-          <h1>Channel setup</h1>
+          <h1>Integrations</h1>
           <p>
-            Connect each customer-owned account, choose the exact destination,
-            and pass real readiness checks before it appears in a campaign.
+            Connect the data, delivery, and publishing systems your business
+            already owns. Nothing is marked connected until it passes a real
+            provider check.
           </p>
         </div>
         {next && (
           <a
             className="button primary"
-            href={`/app/manage/connections/${next.provider}`}
+            href={`/app/integrations/${next.entry.provider}`}
           >
             Continue setup <ArrowRight size={17} />
           </a>
@@ -215,90 +238,135 @@ export function ConnectionsSetupCenter(props: CommonProps) {
           </div>
         </div>
       )}
-      <section className="setup-overview-card">
-        <div>
-          <span className="setup-overview-icon">
-            <ShieldCheck size={22} />
-          </span>
-          <div>
-            <b>{readyCount} channels ready</b>
-            <p>
-              {availableCount
-                ? `${availableCount} provider${availableCount === 1 ? " is" : "s are"} currently approved for customer setup in this environment.`
-                : "No provider has passed the GrowthOS platform gate in this environment yet."}
-            </p>
-          </div>
-        </div>
-        <div className="setup-progress" aria-label={`${readyCount} of ${availableCount} available providers ready`}>
-          <span style={{ width: `${availableCount ? (readyCount / availableCount) * 100 : 0}%` }} />
-        </div>
+      <section className="integration-overview" aria-label="Integration summary">
+        <div><b>{connectedProviders.size}</b><span>Connected</span></div>
+        <div><b>{availableProviderCount + 1}</b><span>Available now</span></div>
+        <div><b>{integrationCatalog.filter((entry) => entry.availability === "planned").length}</b><span>On the roadmap</span></div>
       </section>
-      <div className="setup-flow-strip" aria-label="Connection setup stages">
-        {[
-          ["1", "Prepare", "Know what the customer needs"],
-          ["2", "Authorize", "Sign in on the provider"],
-          ["3", "Choose", "Select accounts and identities"],
-          ["4", "Verify", "Prove delivery readiness"],
-        ].map(([number, label, detail]) => (
-          <div key={number}>
-            <b>{number}</b>
-            <span>
-              <strong>{label}</strong>
-              <small>{detail}</small>
-            </span>
+      <nav className="integration-category-tabs" aria-label="Integration categories">
+        {integrationCategories.map((item) => {
+          const Icon = categoryIcons[item.key];
+          const count = integrationCatalog.filter(
+            (entry) => entry.category === item.key,
+          ).length;
+          return (
+            <a
+              key={item.key}
+              className={item.key === activeCategory ? "active" : ""}
+              href={`/app/integrations/${item.key}`}
+              aria-current={item.key === activeCategory ? "page" : undefined}
+            >
+              <Icon size={18} />
+              <span><b>{item.label}</b><small>{count} integrations</small></span>
+            </a>
+          );
+        })}
+      </nav>
+      <section className="integration-catalog-section">
+        <header className="integration-catalog-header">
+          <div>
+            <h2>{category.label}</h2>
+            <p>{category.description}</p>
           </div>
-        ))}
-      </div>
-      <div className="connection-sections">
-        {connectionSections.map((section) => (
-          <section key={section.title}>
-            <header>
-              <h2>{section.title}</h2>
-              <p>{section.detail}</p>
-            </header>
-            <div className="connection-provider-list">
-              {section.providers.map((provider) => {
-                const definition = providerOnboarding[provider];
-                const setup = setupForProvider(provider, props);
-                const selected = props.accounts.filter(
+          <label className="integration-search">
+            <Search size={17} />
+            <span className="sr-only">Search {category.noun}</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={`Search ${category.noun}`}
+            />
+          </label>
+        </header>
+        <div className="integration-catalog-list">
+          {liveEntries.map((entry) => {
+            const provider = entry.provider;
+            const setup = provider ? setupForProvider(provider, props) : null;
+            const selected = provider
+              ? props.accounts.filter(
                   (account) =>
                     account.provider_key === provider && account.selected,
-                );
-                return (
-                  <a
-                    href={`/app/manage/connections/${provider}`}
-                    className="connection-provider-row"
-                    key={provider}
-                  >
-                    <ProviderMark provider={provider} />
-                    <div className="connection-provider-copy">
-                      <div>
-                        <h3>{providerCapabilities[provider].label}</h3>
-                        <SetupStatus provider={provider} setup={setup} />
-                      </div>
-                      <p>{definition.summary}</p>
-                      {selected.length > 0 && (
-                        <small>
-                          <Check size={13} /> {selected.map((account) => account.name).join(", ")}
-                        </small>
-                      )}
-                    </div>
-                    <ArrowRight size={18} />
-                  </a>
-                );
-              })}
+                )
+              : [];
+            const href = provider
+              ? `/app/integrations/${provider}`
+              : entry.nativeHref!;
+            return (
+              <a className="integration-catalog-row" href={href} key={entry.id}>
+                {provider ? (
+                  <ProviderMark provider={provider} />
+                ) : (
+                  <span className="provider-logo native" aria-hidden="true">G</span>
+                )}
+                <div className="integration-catalog-copy">
+                  <div>
+                    <h3>{entry.label}</h3>
+                    {provider && setup ? (
+                      <SetupStatus provider={provider} setup={setup} />
+                    ) : (
+                      <span className="setup-status ready"><span />Available</span>
+                    )}
+                  </div>
+                  <p>{entry.description}</p>
+                  <div className="integration-capabilities">
+                    {entry.capabilities.map((capability) => (
+                      <span key={capability}>{capability}</span>
+                    ))}
+                  </div>
+                  {selected.length > 0 && (
+                    <small><Check size={13} /> {selected.map((account) => account.name).join(", ")}</small>
+                  )}
+                </div>
+                <span className="integration-row-action">
+                  {provider && setup?.status === "ready"
+                    ? "Manage"
+                    : provider && setup?.status === "unavailable"
+                      ? "View requirements"
+                      : entry.availability === "native"
+                        ? "Open"
+                        : "Connect"}
+                  <ArrowRight size={16} />
+                </span>
+              </a>
+            );
+          })}
+          {!categoryEntries.length && (
+            <div className="integration-empty">
+              <Search size={20} />
+              <div><strong>No matching integrations</strong><p>Try a provider name or capability such as audiences, reporting, email, or SMS.</p></div>
             </div>
-          </section>
-        ))}
-      </div>
+          )}
+        </div>
+        {plannedEntries.length > 0 && (
+          <div className="planned-integrations">
+            <div className="planned-integrations-heading">
+              <div><h3>On the roadmap</h3><p>These are visible for planning, but cannot be connected yet.</p></div>
+              <span>{plannedEntries.length}</span>
+            </div>
+            <div className="planned-integration-grid">
+              {plannedEntries.map((entry) => (
+                <article key={entry.id}>
+                  <div><span className="provider-logo planned" aria-hidden="true">{entry.label.slice(0, 1)}</span><span className="planned-label">Planned</span></div>
+                  <h3>{entry.label}</h3>
+                  <p>{entry.description}</p>
+                  <div className="integration-capabilities">
+                    {entry.capabilities.map((capability) => <span key={capability}>{capability}</span>)}
+                  </div>
+                  <small>{entry.note}</small>
+                </article>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
       <div className="notice info connection-safety-note">
         <LockKeyhole size={18} />
         <div>
           <strong>Customers always sign in with the provider</strong>
           <p>
-            GrowthOS never asks for a Meta, Google, TikTok, Reddit, or LinkedIn
-            password. API credentials used by ChatGPT Ads, SendGrid, and the
-            current Twilio beta are encrypted server-side and never returned.
+            GrowthOS never asks for a provider password. OAuth happens on the
+            provider’s domain; restricted credentials used by supported
+            key-based integrations are encrypted server-side and never returned.
           </p>
         </div>
       </div>
@@ -520,7 +588,7 @@ export function ProviderSetupPage({
         throw new Error(result.errors?.[0]?.message ?? "ChatGPT Ads connection failed.");
       setApiKey("");
       await onRefresh();
-      window.location.assign(`/app/manage/connections/${provider}`);
+      window.location.assign(`/app/integrations/${provider}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "ChatGPT Ads connection failed.");
     } finally {
@@ -560,7 +628,7 @@ export function ProviderSetupPage({
             `${capability.label} connection failed.`,
         );
       await onRefresh();
-      window.location.assign(`/app/manage/connections/${provider}`);
+      window.location.assign(`/app/integrations/${provider}`);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -627,7 +695,9 @@ export function ProviderSetupPage({
       };
       if (!result.ok)
         throw new Error(result.errors?.[0]?.message ?? "Disconnect failed.");
-      window.location.assign("/app/manage/connections");
+      window.location.assign(
+        `/app/integrations/${providerPrimaryCategory[provider]}`,
+      );
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Disconnect failed.");
       setBusy(false);
@@ -642,8 +712,11 @@ export function ProviderSetupPage({
   );
   return (
     <>
-      <a className="back-link" href="/app/manage/connections">
-        <ArrowLeft size={17} /> Channel setup
+      <a
+        className="back-link"
+        href={`/app/integrations/${providerPrimaryCategory[provider]}`}
+      >
+        <ArrowLeft size={17} /> Integrations
       </a>
       <header className="provider-setup-header">
         <div className="provider-setup-title">

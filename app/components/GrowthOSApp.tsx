@@ -51,6 +51,10 @@ import {
 } from "@/lib/v1/templates";
 import { buildCampaignEmailHtml, smsSegmentCount } from "@/lib/v1/messaging";
 import { deriveProviderSetup } from "@/lib/v1/connection-onboarding";
+import {
+  isIntegrationCategory,
+  type IntegrationCategoryKey,
+} from "@/lib/v1/integration-catalog";
 import { TacticEditor } from "./TacticEditor";
 import {
   ConnectionsSetupCenter,
@@ -319,8 +323,15 @@ const NAV = [
   { label: "Campaigns", href: "/app/campaigns", icon: Megaphone },
   { label: "Calendar", href: "/app/calendar", icon: CalendarDays },
   { label: "Results", href: "/app/results", icon: BarChart3 },
+  { label: "Integrations", href: "/app/integrations", icon: Link2 },
   { label: "Manage", href: "/app/manage", icon: Settings },
 ];
+
+const MOBILE_NAV = NAV.filter((item) =>
+  ["Home", "Campaigns", "Calendar", "Integrations", "Manage"].includes(
+    item.label,
+  ),
+);
 
 const PAID_CHANNELS = new Set<ChannelKey>([
   "meta_ads",
@@ -440,6 +451,8 @@ function routeTitle(path: string) {
   if (path.startsWith("/app/campaigns")) return "Campaigns";
   if (path.startsWith("/app/calendar")) return "Calendar";
   if (path.startsWith("/app/results")) return "Results";
+  if (path.startsWith("/app/integrations")) return "Integrations";
+  if (path.startsWith("/app/manage/connections")) return "Integrations";
   if (path.startsWith("/app/manage")) return "Manage";
   return "Home";
 }
@@ -670,14 +683,19 @@ export function GrowthOSApp({
       return <ContactsConsentPage workspace={workspace} audiences={messagingAudiences} settings={messagingSettings} onRefresh={loadWorkspace} />;
     if (initialPath.startsWith("/app/manage/platform"))
       return <PlatformReadinessPage />;
-    const connectionMatch = initialPath.match(
+    const integrationProviderMatch = initialPath.match(
+      /^\/app\/integrations\/([^/]+)$/,
+    );
+    const legacyConnectionMatch = initialPath.match(
       /^\/app\/manage\/connections\/([^/]+)$/,
     );
-    if (connectionMatch && isSetupProvider(connectionMatch[1]))
+    const providerPathKey =
+      integrationProviderMatch?.[1] ?? legacyConnectionMatch?.[1];
+    if (providerPathKey && isSetupProvider(providerPathKey))
       return (
         <ProviderSetupPage
           workspace={workspace}
-          provider={connectionMatch[1]}
+          provider={providerPathKey}
           connections={connections}
           accounts={accounts}
           readiness={readiness}
@@ -694,7 +712,14 @@ export function GrowthOSApp({
           onRefresh={loadWorkspace}
         />
       );
-    if (initialPath.startsWith("/app/manage/connections"))
+    const integrationCategoryPath = initialPath.match(
+      /^\/app\/integrations(?:\/([^/]+))?$/,
+    )?.[1];
+    if (
+      initialPath === "/app/integrations" ||
+      isIntegrationCategory(integrationCategoryPath) ||
+      initialPath.startsWith("/app/manage/connections")
+    )
       return (
         <ConnectionsSetupCenter
           workspace={workspace}
@@ -711,6 +736,11 @@ export function GrowthOSApp({
           }
           canManage={["owner", "admin"].includes(role)}
           connectionNotice={initialConnectionNotice}
+          initialCategory={
+            (isIntegrationCategory(integrationCategoryPath)
+              ? integrationCategoryPath
+              : "data") as IntegrationCategoryKey
+          }
         />
       );
     if (initialPath.startsWith("/app/manage/team"))
@@ -723,7 +753,6 @@ export function GrowthOSApp({
           products={products}
           media={media}
           connections={connections}
-          accounts={accounts}
           platformAdmin={platformAdmin}
         />
       );
@@ -847,7 +876,7 @@ export function GrowthOSApp({
         <main className="page-content">{content}</main>
       </section>
       <nav className="mobile-bottom" aria-label="Mobile navigation">
-        {NAV.map((item) => (
+        {MOBILE_NAV.map((item) => (
           <a key={item.href} href={item.href}>
             <item.icon size={20} />
             <span>{item.label}</span>
@@ -1114,8 +1143,8 @@ function HomePage({
             : "Connect your first channel",
           detail:
             "Authorize the real provider account, choose destinations, and pass a live readiness check.",
-          href: "/app/manage/connections",
-          action: "Open channel setup",
+          href: "/app/integrations",
+          action: "Open integrations",
         }
       : !campaigns.length
         ? {
@@ -4254,13 +4283,11 @@ function ManagePage({
   products,
   media,
   connections,
-  accounts,
   platformAdmin,
 }: {
   products: ProductService[];
   media: MediaAsset[];
   connections: ProviderConnection[];
-  accounts: ProviderAccount[];
   platformAdmin: boolean;
 }) {
   const cards = [
@@ -4272,11 +4299,11 @@ function ManagePage({
       action: "Manage brand",
     },
     {
-      href: "/app/manage/connections",
+      href: "/app/integrations",
       icon: Link2,
-      title: "Connections",
-      detail: `${connections.length} authorized · ${accounts.filter((a) => a.selected).length} selected accounts`,
-      action: "Manage destinations",
+      title: "Integrations",
+      detail: `${connections.length} authorized · data, ads, messaging, and social`,
+      action: "Open integration catalog",
     },
     {
       href: "/app/manage/contacts",
@@ -4750,7 +4777,7 @@ function BrandAssetsPage({
               and run its live readiness check.
             </p>
           </div>
-          <a className="button primary" href="/app/manage/connections">
+          <a className="button primary" href="/app/integrations">
             Continue setup <ArrowRight size={17} />
           </a>
         </section>

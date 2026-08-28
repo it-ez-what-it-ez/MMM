@@ -22,7 +22,7 @@ test("unconfigured local build refuses to fake a workspace", async ({
   await expect(page.getByText("Northstar Analytics")).toHaveCount(0);
 });
 
-test("authenticated production shell has the five-destination information architecture", async ({
+test("authenticated production shell exposes the primary product destinations", async ({
   page,
 }) => {
   test.skip(
@@ -30,7 +30,14 @@ test("authenticated production shell has the five-destination information archit
     "Set PLAYWRIGHT_AUTH_STORAGE to a real invited-user Supabase session for this suite.",
   );
   await page.goto("/app");
-  for (const label of ["Home", "Campaigns", "Calendar", "Results", "Manage"])
+  for (const label of [
+    "Home",
+    "Campaigns",
+    "Calendar",
+    "Results",
+    "Integrations",
+    "Manage",
+  ])
     await expect(
       page.getByRole("link", { name: label, exact: true }).first(),
     ).toBeVisible();

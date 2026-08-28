@@ -69,7 +69,7 @@ export async function GET(
         pkce_verifier_ciphertext: encryptedVerifier
           ? JSON.stringify(encryptedVerifier)
           : null,
-        redirect_path: `/app/manage/connections/${provider}`,
+        redirect_path: `/app/integrations/${provider}`,
         expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
       });
     if (error) throw error;

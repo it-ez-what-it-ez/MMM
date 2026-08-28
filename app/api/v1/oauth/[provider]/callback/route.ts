@@ -17,9 +17,9 @@ export async function GET(
   { params }: { params: Promise<{ provider: string }> },
 ) {
   const provider = oauthProvider.safeParse((await params).provider);
-  const fallback = new URL("/app/manage/connections", getAppOrigin());
+  const fallback = new URL("/app/integrations", getAppOrigin());
   if (provider.success)
-    fallback.pathname = `/app/manage/connections/${provider.data}`;
+    fallback.pathname = `/app/integrations/${provider.data}`;
   try {
     if (!provider.success) throw new Error("Unsupported provider.");
     const code =

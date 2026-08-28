@@ -72,7 +72,7 @@ Before the call, ask the customer to have:
 
 1. Invite the owner to GrowthOS and have them create the empty workspace.
 2. Add the brand, a real product/service, landing page, and real image.
-3. Open **Manage → Channel setup** and select one channel.
+3. Open **Integrations**, choose Data, Advertising, Messaging, or Social, and select one implemented provider.
 4. Review **Before you connect** together. Resolve provider-role or billing problems before authorization.
 5. Authorize on the provider's domain or submit the explicitly requested restricted credential.
 6. Select the exact destination. For Meta paid accounts, select the visible Facebook Page identity.

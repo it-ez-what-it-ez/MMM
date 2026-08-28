@@ -144,7 +144,7 @@ describe("database isolation", () => {
       "utf8",
     );
     expect(oauthStart).toContain(
-      "redirect_path: `/app/manage/connections/${provider}`",
+      "redirect_path: `/app/integrations/${provider}`",
     );
     expect(oauthStart).toContain('"config_id"');
     expect(oauthStart).toContain('provider === "linkedin_pages"');
