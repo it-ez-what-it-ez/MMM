@@ -10,19 +10,20 @@ The fastest responsible launch is a design-partner release with **Meta, Google A
 
 ## Audited production state
 
-| Area                | Current state                                                                                               | Launch action                                                                                                                                       |
-| ------------------- | ----------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Application         | Real Supabase-backed product; no runtime mock provider or seeded client data                                | Deploy this audited revision and run the final browser journey                                                                                      |
-| Supabase schema     | All repository migrations are applied to the current project                                                | Create separate staging and production projects before accepting client data                                                                        |
-| Supabase Auth       | Email and Google providers are enabled                                                                      | Change the Site URL from localhost to the permanent production origin; retest signup, magic link, Google login, invitation, refresh, and logout     |
-| Auth email          | Supabase custom SMTP is not configured                                                                      | Add a domain-authenticated SMTP provider and test every auth email                                                                                  |
-| Database protection | RLS and private credential schema are implemented                                                           | Upgrade from the Free plan, enable production backups, and perform a restore drill                                                                  |
-| Secrets             | Sites has the Supabase foundation and application secrets                                                   | Rotate the database password and legacy service-role credential disclosed during setup; install a modern server secret; never reuse them in staging |
-| Durable jobs        | Five local Edge Functions exist                                                                             | Deploy all five, set matching worker secrets, create Cron schedules, and test queue retry/reconciliation                                            |
-| AI                  | Real OpenAI Responses, Images, and Moderation paths exist with no mock fallback                             | Create a funded production OpenAI project, add its API key, set limits, and run structured-output/moderation failure tests                          |
-| Monitoring          | Client/server Sentry instrumentation and redaction are implemented                                          | Create Sentry projects, add both DSNs, trigger test errors in both runtimes, verify redaction, then set the evidence flag                           |
-| Platform readiness  | Strict scope, approval, callback, webhook, refresh, fresh smoke-test, and kill-switch gates are implemented | Create one readiness record per provider only after real acceptance evidence exists                                                                 |
-| Legal/support       | Pages and workflow require owner review                                                                     | Finalize the permanent domain, support address, Terms, Privacy, Data Deletion, consent language, and incident contact with counsel                  |
+| Area                | Current state                                                                                                                | Launch action                                                                                                                      |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Application         | Real Supabase-backed product; no runtime mock provider or seeded client data                                                 | Deploy this audited revision and run the final browser journey                                                                     |
+| Supabase schema     | All repository migrations are applied to the current project                                                                 | Create separate staging and production projects before accepting client data                                                       |
+| Supabase Auth       | Email and Google are enabled; the Site URL and callback allowlist point at the current hosted origin                         | Retest signup, magic link, Google callback, invitation, refresh, and logout after the next application deployment                  |
+| Auth email          | Supabase custom SMTP is not configured                                                                                       | Add a domain-authenticated SMTP provider and test every auth email                                                                 |
+| Database protection | RLS and private credential schema are implemented                                                                            | Upgrade from the Free plan, enable production backups, and perform a restore drill                                                 |
+| Secrets             | The database password is rotated into the local login Keychain; Sites uses a modern secret key; legacy API keys are disabled | Create independent credentials for staging and production and never reuse the retired setup credentials                            |
+| Database transport  | SSL is required for external Postgres connections                                                                            | Add production network restrictions after the permanent deployment egress strategy is known                                        |
+| Durable jobs        | Five authenticated Edge Functions and five Vault-backed Cron schedules are deployed                                          | Deploy the matching Sites environment revision and prove live success, retry, and reconciliation                                   |
+| AI                  | Real OpenAI Responses, Images, and Moderation paths exist with no mock fallback                                              | Create a funded production OpenAI project, add its API key, set limits, and run structured-output/moderation failure tests         |
+| Monitoring          | Client/server Sentry instrumentation and redaction are implemented                                                           | Create Sentry projects, add both DSNs, trigger test errors in both runtimes, verify redaction, then set the evidence flag          |
+| Platform readiness  | Strict scope, approval, callback, webhook, refresh, fresh smoke-test, and kill-switch gates are implemented                  | Create one readiness record per provider only after real acceptance evidence exists                                                |
+| Legal/support       | Pages and workflow require owner review                                                                                      | Finalize the permanent domain, support address, Terms, Privacy, Data Deletion, consent language, and incident contact with counsel |
 
 ## Connector truth table
 
@@ -48,7 +49,7 @@ The fastest responsible launch is a design-partner release with **Meta, Google A
 1. Choose the permanent domain and a monitored support email.
 2. Publish approved Terms, Privacy, Data Deletion, and Support pages.
 3. Decide which legal company owns the provider applications and customer data-processing agreements.
-4. Rotate the Supabase database password and the exposed legacy server credential. Replace the server credential in Sites immediately after rotation.
+4. Keep the rotated database password in the macOS login Keychain entry `GrowthOS Supabase boqqoxraepwzzmrjvbad`; do not export it to source or chat.
 
 These decisions must happen before provider review because callbacks, privacy URLs, business identity, and deletion instructions are part of the applications.
 
@@ -63,9 +64,9 @@ These decisions must happen before provider review because callbacks, privacy UR
 
 1. Set the exact production Site URL and callback allowlist.
 2. Configure custom SMTP and domain authentication.
-3. Deploy `publish-due`, `send-messages`, `sync-results`, `refresh-tokens`, and `reconcile-organic`.
-4. Set `GROWTHOS_APP_ORIGIN` and the same 32+ character `GROWTHOS_WORKER_SECRET` in the app and Edge Function environments.
-5. Add Cron schedules: publishing every minute, message delivery every minute, token refresh every ten minutes, organic reconciliation every two minutes, and results sync every fifteen minutes.
+3. Keep `publish-due`, `send-messages`, `sync-results`, `refresh-tokens`, and `reconcile-organic` deployed from source.
+4. Keep `GROWTHOS_APP_ORIGIN`, `GROWTHOS_WORKER_SECRET`, `GROWTHOS_CRON_SECRET`, and the Sites bypass credential synchronized through the deployment environments.
+5. Keep the Vault-backed Cron schedules at publishing every minute, message delivery every minute, token refresh every ten minutes, organic reconciliation every two minutes, and results sync every fifteen minutes.
 6. Prove redelivery, dead-letter visibility, token refresh, and idempotency after a forced worker crash.
 
 ### 4. Submit provider applications now

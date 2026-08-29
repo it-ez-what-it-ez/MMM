@@ -101,13 +101,57 @@ export async function getProductionReadiness() {
     workerFunctions.map(edgeFunctionIsDeployed),
   );
   const missingWorkers = workerFunctions.filter((_, index) => !deployed[index]);
+  let schedulesHealthy = false;
+  let scheduleDetail = "Cron schedule health could not be verified.";
+  if (!missingWorkers.length) {
+    try {
+      const admin = getSupabaseAdmin();
+      const [scheduleResult, heartbeatResult] = await Promise.all([
+        admin.rpc("growthos_worker_schedule_status"),
+        admin
+          .from("worker_heartbeats")
+          .select("worker_name,last_succeeded_at,last_status_code"),
+      ]);
+      if (!scheduleResult.error && !heartbeatResult.error) {
+        const schedules = scheduleResult.data;
+        const rows = (schedules ?? []) as Array<{
+          active: boolean;
+          job_name: string;
+          last_run_at: string | null;
+          last_status: string | null;
+        }>;
+        const heartbeats = (heartbeatResult.data ?? []) as Array<{
+          worker_name: string;
+          last_succeeded_at: string;
+          last_status_code: number;
+        }>;
+        const latestAllowedAt = Date.now() - 30 * 60 * 1_000;
+        const activeSchedules = rows.filter((row) => row.active).length;
+        const recentHeartbeats = heartbeats.filter(
+          (heartbeat) =>
+            heartbeat.last_status_code >= 200 &&
+            heartbeat.last_status_code <= 299 &&
+            new Date(heartbeat.last_succeeded_at).getTime() >= latestAllowedAt,
+        ).length;
+        schedulesHealthy =
+          rows.length === workerFunctions.length &&
+          activeSchedules === workerFunctions.length &&
+          recentHeartbeats === workerFunctions.length;
+        scheduleDetail = schedulesHealthy
+          ? "All five workers are deployed, authenticated, scheduled, and have succeeded recently."
+          : `${activeSchedules}/${workerFunctions.length} schedules are active and ${recentHeartbeats}/${workerFunctions.length} workers reached GrowthOS successfully within 30 minutes.`;
+      }
+    } catch {
+      schedulesHealthy = false;
+    }
+  }
   checks.push({
     id: "durable-workers",
     label: "Scheduled publishing and reporting workers",
     detail: missingWorkers.length
       ? `Deploy and schedule: ${missingWorkers.join(", ")}.`
-      : "All five worker entry points are deployed. Cron schedules and worker secrets still require a live smoke test.",
-    status: missingWorkers.length ? "blocked" : "pass",
+      : scheduleDetail,
+    status: missingWorkers.length || !schedulesHealthy ? "blocked" : "pass",
     owner: "growthos",
   });
 

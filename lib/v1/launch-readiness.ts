@@ -105,6 +105,7 @@ export function configurationReadinessChecks(
     key: string;
     pending: string;
     complete: string;
+    owner?: LaunchReadinessCheck["owner"];
   }> = [
     {
       id: "auth-urls",
@@ -123,6 +124,24 @@ export function configurationReadinessChecks(
         "Configure a domain-authenticated custom SMTP provider and test signup, magic link, and invitation delivery.",
       complete:
         "Custom SMTP and all authentication email journeys were manually verified.",
+    },
+    {
+      id: "legacy-api-keys",
+      label: "Legacy Supabase API keys",
+      key: "SUPABASE_LEGACY_KEYS_DISABLED",
+      pending:
+        "Move every browser and server runtime to publishable/secret keys, then disable legacy anon and service_role API keys.",
+      complete:
+        "Legacy anon and service_role API keys are disabled; the app uses current publishable and secret keys.",
+      owner: "growthos",
+    },
+    {
+      id: "database-ssl",
+      label: "Database transport security",
+      key: "SUPABASE_DATABASE_SSL_ENFORCED",
+      pending: "Require SSL for every external Postgres connection.",
+      complete: "Supabase rejects non-SSL external database connections.",
+      owner: "growthos",
     },
     {
       id: "backups",
@@ -150,7 +169,7 @@ export function configurationReadinessChecks(
       label: evidence.label,
       detail: complete ? evidence.complete : evidence.pending,
       status: complete ? "pass" : "manual",
-      owner: "founder",
+      owner: evidence.owner ?? "founder",
     });
   }
   return checks;
