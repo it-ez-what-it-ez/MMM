@@ -25,7 +25,7 @@ Organic destinations:
 
 WhatsApp, video, native lead forms, ecommerce catalogs, CRM/CDP sync, paid LinkedIn, and other ad networks are deliberately excluded from the current delivery engine. They may appear in the Integrations catalog as clearly labeled roadmap items, never as connectable or connected providers. See [INTEGRATIONS_ARCHITECTURE.md](./INTEGRATIONS_ARCHITECTURE.md).
 
-Before onboarding customers, complete [PROVIDER_ONBOARDING.md](./PROVIDER_ONBOARDING.md) and [PRODUCTION_LAUNCH_CHECKLIST.md](./PRODUCTION_LAUNCH_CHECKLIST.md). Provider approvals, verified senders, production secrets, compliance registrations, and real smoke tests are external launch requirements; source code cannot grant them.
+Before onboarding customers, start with the instance-specific [FIRST_CLIENT_READINESS.md](./FIRST_CLIENT_READINESS.md), then complete [PROVIDER_ONBOARDING.md](./PROVIDER_ONBOARDING.md) and [PRODUCTION_LAUNCH_CHECKLIST.md](./PRODUCTION_LAUNCH_CHECKLIST.md). Provider approvals, verified senders, production secrets, compliance registrations, and real smoke tests are external launch requirements; source code cannot grant them.
 
 ## Production stack
 

@@ -129,9 +129,18 @@ type ProviderReadiness = {
   ready: boolean;
   implementationReady?: boolean;
   configured: boolean;
+  recordConfigured?: boolean;
+  credentialEncryptionReady?: boolean;
   reviewStatus: string;
+  reviewReady?: boolean;
   redirectVerified: boolean;
+  redirectReady?: boolean;
+  webhookReady?: boolean;
+  scopesReady?: boolean;
+  missingScopes?: string[];
   smokeTestPassed: boolean;
+  smokeTestFresh?: boolean;
+  refreshReady?: boolean;
   killSwitch: boolean;
   reason: string | null;
 };
@@ -146,6 +155,23 @@ type PlatformProviderRecord = ProviderReadiness & {
   lastSmokeTestStatus: "passed" | "failed" | null;
   tokenRefreshHealthy: boolean;
   webhookHealthy: boolean;
+};
+type LaunchReadinessReport = {
+  generatedAt: string;
+  summary: {
+    passed: number;
+    blocked: number;
+    manual: number;
+    ready: boolean;
+  };
+  checks: Array<{
+    id: string;
+    label: string;
+    detail: string;
+    status: "pass" | "blocked" | "manual";
+    owner: "growthos" | "founder" | "provider";
+  }>;
+  readyProviders: ProviderKey[];
 };
 type MembershipRow = {
   role: string;
@@ -4788,6 +4814,7 @@ function BrandAssetsPage({
 
 function PlatformReadinessPage() {
   const [records, setRecords] = useState<PlatformProviderRecord[]>([]);
+  const [launchReport, setLaunchReport] = useState<LaunchReadinessReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<ProviderKey | null>(null);
   const [error, setError] = useState("");
@@ -4796,17 +4823,34 @@ function PlatformReadinessPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await authenticatedFetch("/api/v1/admin/providers");
-      const result = (await response.json()) as {
+      const [providerResponse, launchResponse] = await Promise.all([
+        authenticatedFetch("/api/v1/admin/providers"),
+        authenticatedFetch("/api/v1/admin/launch-readiness"),
+      ]);
+      const providerResult = (await providerResponse.json()) as {
         ok?: boolean;
         data?: PlatformProviderRecord[];
         error?: string;
+        errors?: Array<{ message: string }>;
       };
-      if (!response.ok || !result.data)
+      const launchResult = (await launchResponse.json()) as {
+        ok?: boolean;
+        data?: LaunchReadinessReport;
+        error?: string;
+        errors?: Array<{ message: string }>;
+      };
+      if (!providerResponse.ok || !providerResult.data)
         throw new Error(
-          result.error ?? "Platform administrator access is required.",
+          providerResult.error ?? providerResult.errors?.[0]?.message ??
+            "Platform administrator access is required.",
         );
-      setRecords(result.data);
+      if (!launchResponse.ok || !launchResult.data)
+        throw new Error(
+          launchResult.error ?? launchResult.errors?.[0]?.message ??
+            "Launch readiness could not be loaded.",
+        );
+      setRecords(providerResult.data);
+      setLaunchReport(launchResult.data);
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -4843,7 +4887,7 @@ function PlatformReadinessPage() {
           provider: record.provider,
           environment: record.environment,
           applicationId: record.applicationId || null,
-          configured: record.configured,
+          configured: Boolean(record.recordConfigured),
           reviewStatus: record.reviewStatus,
           requiredScopes: record.requiredScopes,
           grantedScopes: record.grantedScopes,
@@ -4890,7 +4934,44 @@ function PlatformReadinessPage() {
           <Loader2 className="spin" size={22} /> Loading provider evidence…
         </section>
       ) : (
-        <div className="readiness-editor-grid">
+        <>
+          {launchReport && (
+            <section className="launch-readiness-overview">
+              <header>
+                <div>
+                  <p className="kicker">First-client gate</p>
+                  <h2>{launchReport.summary.ready ? "Ready to onboard" : "Launch is still gated"}</h2>
+                  <p>
+                    This report checks the deployed foundation and real provider evidence. Manual owner work cannot be completed by a source-code change.
+                  </p>
+                </div>
+                <div className="launch-readiness-counts" aria-label="Launch readiness totals">
+                  <span><b>{launchReport.summary.passed}</b>Passed</span>
+                  <span><b>{launchReport.summary.blocked}</b>Blocked</span>
+                  <span><b>{launchReport.summary.manual}</b>Owner checks</span>
+                </div>
+              </header>
+              <div className="launch-check-grid">
+                {launchReport.checks.map((check) => (
+                  <article key={check.id}>
+                    <div>
+                      {check.status === "pass" ? <Check size={16} /> : <CircleAlert size={16} />}
+                    </div>
+                    <section>
+                      <header>
+                        <h3>{check.label}</h3>
+                        <span className={`status ${check.status === "pass" ? "ready" : check.status === "blocked" ? "warning" : "neutral"}`}>
+                          {check.status === "manual" ? "Owner" : check.status}
+                        </span>
+                      </header>
+                      <p>{check.detail}</p>
+                    </section>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
+          <div className="readiness-editor-grid">
           {records.map((record) => (
             <article className="readiness-editor-card" key={record.provider}>
               <header>
@@ -4905,6 +4986,21 @@ function PlatformReadinessPage() {
               {!record.implementationReady && (
                 <div className="notice warning">
                   Source acceptance gate is active and cannot be bypassed here.
+                </div>
+              )}
+              {Boolean(record.missingScopes?.length) && (
+                <div className="notice warning">
+                  Missing required permissions: {record.missingScopes?.join(", ")}
+                </div>
+              )}
+              {record.smokeTestPassed && !record.smokeTestFresh && (
+                <div className="notice warning">
+                  The passing smoke test is missing a timestamp or is older than 30 days.
+                </div>
+              )}
+              {record.configured && record.refreshReady === false && (
+                <div className="notice warning">
+                  OAuth token refresh has not passed production acceptance.
                 </div>
               )}
               <div className="form-grid">
@@ -4998,7 +5094,7 @@ function PlatformReadinessPage() {
               </div>
               <div className="readiness-checks">
                 {[
-                  ["configured", "Application configured"],
+                  ["recordConfigured", "Application configured"],
                   ["redirectVerified", "Redirect verified"],
                   ["webhookVerified", "Webhook verified"],
                   ["tokenRefreshHealthy", "Token refresh healthy"],
@@ -5036,7 +5132,8 @@ function PlatformReadinessPage() {
               </footer>
             </article>
           ))}
-        </div>
+          </div>
+        </>
       )}
     </>
   );

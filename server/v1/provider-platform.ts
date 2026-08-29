@@ -3,17 +3,22 @@ import "server-only";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getAppOrigin } from "@/lib/supabase/config";
 import type { OAuthProviderKey, ProviderKey } from "@/lib/v1/domain";
+import {
+  evaluateProviderReadiness,
+  providerRequiredScopes,
+  type EvaluatedProviderReadiness,
+} from "@/lib/v1/provider-readiness";
+import { providerCredentialEncryptionReady } from "./credentials";
 
-export type ProviderReadiness = {
+export type ProviderReadiness = EvaluatedProviderReadiness & {
   provider: ProviderKey;
-  configured: boolean;
+  environment: string;
+  implementationReady: boolean;
+  environmentConfigured: boolean;
+  recordConfigured: boolean;
   reviewStatus: string;
   redirectVerified: boolean;
-  smokeTestPassed: boolean;
   killSwitch: boolean;
-  ready: boolean;
-  implementationReady: boolean;
-  reason: string | null;
 };
 
 // These adapters deliberately cannot be enabled by an admin flag alone yet:
@@ -75,63 +80,51 @@ export async function getProviderReadiness(
   const { data } = await admin
     .from("platform_provider_readiness")
     .select(
-      "configured,review_status,redirect_verified,webhook_verified,last_smoke_test_status,kill_switch",
+      "configured,review_status,redirect_verified,webhook_verified,granted_scopes,last_smoke_test_status,last_smoke_test_at,token_refresh_healthy,webhook_healthy,kill_switch",
     )
     .eq("provider_key", provider)
     .eq("environment", environment())
     .maybeSingle();
-  const configured = hasEnvironment(provider) && Boolean(data?.configured);
+  const currentEnvironment = environment();
+  const environmentConfigured = hasEnvironment(provider);
+  const recordConfigured = Boolean(data?.configured);
   const reviewStatus = data?.review_status ?? "not_started";
-  const reviewReady =
-    environment() === "production"
-      ? reviewStatus === "approved"
-      : ["sandbox", "approved"].includes(reviewStatus);
   const redirectVerified = Boolean(data?.redirect_verified);
   const webhookVerified = Boolean(data?.webhook_verified);
-  const smokeTestPassed = data?.last_smoke_test_status === "passed";
   const killSwitch = data?.kill_switch ?? true;
   const adapterReady = implementationReady(provider);
-  const redirectReady = ["chatgpt_ads", "twilio_messaging", "sendgrid_email"].includes(
+  const requiredScopes =
+    provider in providerRequiredScopes
+      ? providerRequiredScopes[provider as OAuthProviderKey]
+      : [];
+  const evaluated = evaluateProviderReadiness({
     provider,
-  )
-    ? true
-    : redirectVerified;
-  const webhookReady = ["twilio_messaging", "sendgrid_email"].includes(provider)
-    ? webhookVerified
-    : true;
-  const ready =
-    adapterReady &&
-    configured &&
-    reviewReady &&
-    redirectReady &&
-    webhookReady &&
-    smokeTestPassed &&
-    !killSwitch;
-  const reason = ready
-    ? null
-    : !adapterReady
-      ? "The full provider resource hierarchy has not passed GrowthOS production acceptance."
-      : !configured
-      ? "GrowthOS has not configured this provider application."
-      : !reviewReady
-        ? "Provider review or sandbox access is not approved."
-        : !redirectReady
-          ? "The provider callback has not been verified."
-          : !webhookReady
-            ? "The provider delivery webhook has not been verified."
-          : !smokeTestPassed
-            ? "The latest platform smoke test has not passed."
-            : "The provider kill switch is enabled.";
-  return {
-    provider,
-    configured,
+    environment: currentEnvironment,
+    implementationReady: adapterReady,
+    environmentConfigured,
+    credentialEncryptionReady: providerCredentialEncryptionReady(),
+    recordConfigured,
     reviewStatus,
     redirectVerified,
-    smokeTestPassed,
+    webhookVerified,
+    requiredScopes,
+    grantedScopes: data?.granted_scopes ?? [],
+    lastSmokeTestStatus: data?.last_smoke_test_status ?? null,
+    lastSmokeTestAt: data?.last_smoke_test_at ?? null,
+    tokenRefreshHealthy: Boolean(data?.token_refresh_healthy),
+    webhookHealthy: Boolean(data?.webhook_healthy),
     killSwitch,
-    ready,
+  });
+  return {
+    provider,
+    environment: currentEnvironment,
     implementationReady: adapterReady,
-    reason,
+    environmentConfigured,
+    recordConfigured,
+    reviewStatus,
+    redirectVerified,
+    killSwitch,
+    ...evaluated,
   };
 }
 
@@ -145,18 +138,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         authorizeUrl: `https://www.facebook.com/${process.env.META_GRAPH_VERSION || "v24.0"}/dialog/oauth`,
         tokenUrl: `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v24.0"}/oauth/access_token`,
         callback,
-        scopes: [
-          "ads_management",
-          "ads_read",
-          "business_management",
-          "pages_show_list",
-          "pages_read_engagement",
-          "pages_manage_posts",
-          "read_insights",
-          "instagram_basic",
-          "instagram_content_publish",
-          "instagram_manage_insights",
-        ],
+        scopes: providerRequiredScopes.meta_business,
         pkce: false,
       };
     case "google_ads":
@@ -166,12 +148,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
         tokenUrl: "https://oauth2.googleapis.com/token",
         callback,
-        scopes: [
-          "https://www.googleapis.com/auth/adwords",
-          "openid",
-          "email",
-          "profile",
-        ],
+        scopes: providerRequiredScopes.google_ads,
         pkce: true,
       };
     case "ga4":
@@ -181,12 +158,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
         tokenUrl: "https://oauth2.googleapis.com/token",
         callback,
-        scopes: [
-          "https://www.googleapis.com/auth/analytics.readonly",
-          "openid",
-          "email",
-          "profile",
-        ],
+        scopes: providerRequiredScopes.ga4,
         pkce: true,
       };
     case "reddit_ads":
@@ -196,7 +168,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         authorizeUrl: "https://www.reddit.com/api/v1/authorize",
         tokenUrl: "https://www.reddit.com/api/v1/access_token",
         callback,
-        scopes: ["identity", "adsread", "adsedit"],
+        scopes: providerRequiredScopes.reddit_ads,
         pkce: false,
       };
     case "linkedin_pages":
@@ -206,14 +178,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         authorizeUrl: "https://www.linkedin.com/oauth/v2/authorization",
         tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
         callback,
-        scopes: [
-          "openid",
-          "profile",
-          "email",
-          "w_organization_social",
-          "r_organization_social",
-          "rw_organization_admin",
-        ],
+        scopes: providerRequiredScopes.linkedin_pages,
         pkce: false,
       };
     case "tiktok_organic":
@@ -223,7 +188,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
         tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
         callback,
-        scopes: ["user.info.basic", "video.publish", "video.list"],
+        scopes: providerRequiredScopes.tiktok_organic,
         pkce: true,
       };
     case "tiktok_ads":
@@ -234,7 +199,7 @@ export function oauthConfiguration(provider: OAuthProviderKey) {
         tokenUrl:
           "https://business-api.tiktok.com/open_api/v1.3/oauth2/access_token/",
         callback,
-        scopes: ["advertiser_management", "ads_management", "reporting"],
+        scopes: providerRequiredScopes.tiktok_ads,
         pkce: false,
       };
   }

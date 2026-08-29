@@ -56,7 +56,8 @@ function baseValidation(
 ): ProviderValidation {
   const errors: ProviderValidation["errors"] = [];
   try {
-    new URL(input.creative.destinationUrl);
+    const destination = new URL(input.creative.destinationUrl);
+    if (destination.protocol !== "https:") throw new Error("not https");
   } catch {
     errors.push({
       code: "invalid_url",
@@ -460,6 +461,26 @@ export class GooglePaidAdsAdapter implements PaidAdsAdapter {
           field: "searchKeywords",
           message: "Google Search requires at least one reviewed keyword.",
         });
+      if (
+        input.creative.searchHeadlines?.some(
+          (headline) => headline.length < 1 || headline.length > 30,
+        )
+      )
+        result.errors.push({
+          code: "search_headline_length",
+          field: "searchHeadlines",
+          message: "Every Google Search headline must be 1–30 characters.",
+        });
+      if (
+        input.creative.searchDescriptions?.some(
+          (description) => description.length < 1 || description.length > 90,
+        )
+      )
+        result.errors.push({
+          code: "search_description_length",
+          field: "searchDescriptions",
+          message: "Every Google Search description must be 1–90 characters.",
+        });
     }
     result.valid = result.errors.length === 0;
     if (result.valid)
@@ -700,7 +721,21 @@ export class GooglePaidAdsAdapter implements PaidAdsAdapter {
       })
     ).payload;
     const row = (report.results as Json[] | undefined)?.[0] ?? {};
-    return statusMetrics("google_ads", row, range);
+    const metrics = (row.metrics as Json | undefined) ?? {};
+    return statusMetrics(
+      "google_ads",
+      {
+        impressions: Number(metrics.impressions ?? 0),
+        clicks: Number(metrics.clicks ?? 0),
+        spend:
+          Number(metrics.costMicros ?? metrics.cost_micros ?? 0) / 1_000_000,
+        conversions: Number(metrics.conversions ?? 0),
+        conversionValue: Number(
+          metrics.conversionsValue ?? metrics.conversions_value ?? 0,
+        ),
+      },
+      range,
+    );
   }
 }
 
@@ -717,6 +752,42 @@ class JsonPaidAdapter implements PaidAdsAdapter {
         field: "media",
         message: `${providerCapabilities[this.provider].label} requires real creative media.`,
       });
+    if (this.provider === "chatgpt_ads") {
+      if (
+        input.creative.headline.trim().length < 3 ||
+        input.creative.headline.length > 50
+      )
+        result.errors.push({
+          code: "chatgpt_title_length",
+          field: "headline",
+          message:
+            "ChatGPT Ads titles must be 3–50 characters and are never silently truncated.",
+        });
+      if (input.creative.body.length > 100)
+        result.errors.push({
+          code: "chatgpt_body_length",
+          field: "body",
+          message:
+            "ChatGPT Ads body copy must be 100 characters or fewer and is never silently truncated.",
+        });
+      if (!result.errors.length) {
+        const account = await this.call(context, "/ad_account", {
+          method: "GET",
+        });
+        const review = account.payload.review as Json | undefined;
+        if (
+          account.payload.status !== "active" ||
+          review?.status !== "approved"
+        )
+          result.errors.push({
+            code: "chatgpt_account_review",
+            field: "account",
+            message:
+              "The ChatGPT advertiser account or its brand review is not approved for delivery.",
+          });
+        await this.chatGptLocations(context, input);
+      }
+    }
     result.valid = result.errors.length === 0;
     return result;
   }
@@ -748,6 +819,36 @@ class JsonPaidAdapter implements PaidAdsAdapter {
       providerCapabilities[this.provider].label,
     );
   }
+  private async chatGptLocations(
+    context: ProviderAccountContext,
+    input: PaidDeploymentInput,
+  ) {
+    const countries = (input.targeting.countries as string[]).map(
+      (country) => ({
+        code: country,
+        query: country === "US" ? "United States" : "Canada",
+      }),
+    );
+    return Promise.all(
+      countries.map(async ({ code, query }) => {
+        const result = await this.call(
+          context,
+          `/geo_lookup/search?q=${encodeURIComponent(query)}&limit=25`,
+          { method: "GET" },
+        );
+        const locations = (result.payload.results as Json[] | undefined) ?? [];
+        const country = locations.find(
+          (location) =>
+            location.country_code === code && location.type === "country",
+        );
+        if (!country?.id)
+          throw new Error(
+            `ChatGPT Ads did not return a targetable ${query} country location.`,
+          );
+        return { id: String(country.id) };
+      }),
+    );
+  }
   async createPaused(
     context: ProviderAccountContext,
     input: PaidDeploymentInput,
@@ -755,19 +856,28 @@ class JsonPaidAdapter implements PaidAdsAdapter {
     if (this.provider === "chatgpt_ads") {
       const upload = await this.call(context, "/upload", {
         method: "POST",
+        headers: { "Idempotency-Key": `${input.idempotencyKey}:upload` },
         body: JSON.stringify({ image_url: input.creative.mediaUrls[0] }),
       });
       const fileId = String(upload.payload.file_id);
+      const locations = await this.chatGptLocations(context, input);
       const campaign = await this.call(context, "/campaigns", {
         method: "POST",
+        headers: { "Idempotency-Key": `${input.idempotencyKey}:campaign` },
         body: JSON.stringify({
           name: input.campaignName,
           status: "paused",
+          start_time: Math.floor(new Date(input.startsAt).getTime() / 1000),
+          ...(input.endsAt
+            ? { end_time: Math.floor(new Date(input.endsAt).getTime() / 1000) }
+            : {}),
           budget: {
             lifetime_spend_limit_micros:
               (input.lifetimeBudgetCents ?? input.dailyBudgetCents! * 7) *
               10000,
           },
+          bidding_type: "clicks",
+          targeting: { locations: { include: locations } },
         }),
       });
       const campaignId = String(
@@ -775,6 +885,7 @@ class JsonPaidAdapter implements PaidAdsAdapter {
       );
       const group = await this.call(context, "/ad_groups", {
         method: "POST",
+        headers: { "Idempotency-Key": `${input.idempotencyKey}:ad-group` },
         body: JSON.stringify({
           campaign_id: campaignId,
           name: `${input.campaignName} · Intent`,
@@ -789,14 +900,15 @@ class JsonPaidAdapter implements PaidAdsAdapter {
       const groupId = String(group.payload.id ?? group.payload.ad_group_id);
       const ad = await this.call(context, "/ads", {
         method: "POST",
+        headers: { "Idempotency-Key": `${input.idempotencyKey}:ad` },
         body: JSON.stringify({
           ad_group_id: groupId,
-          name: input.creative.headline.slice(0, 50),
+          name: input.creative.headline,
           status: "paused",
           creative: {
             type: "chat_card",
-            title: input.creative.headline.slice(0, 50),
-            body: input.creative.body.slice(0, 100),
+            title: input.creative.headline,
+            body: input.creative.body,
             target_url: input.creative.destinationUrl,
             file_id: fileId,
           },
@@ -920,11 +1032,51 @@ class JsonPaidAdapter implements PaidAdsAdapter {
       await this.call(
         context,
         this.provider === "chatgpt_ads"
-          ? `/insights?campaign_id=${resources.campaignId}&start_time=${encodeURIComponent(range.start)}&end_time=${encodeURIComponent(range.end)}`
+          ? (() => {
+              const params = new URLSearchParams({
+                aggregation_level: "campaign",
+                time_granularity: "none",
+                time_ranges: JSON.stringify({
+                  type: "unix_range",
+                  start: String(
+                    Math.floor(new Date(range.start).getTime() / 1000),
+                  ),
+                  end: String(Math.floor(new Date(range.end).getTime() / 1000)),
+                }),
+              });
+              for (const field of [
+                "campaign.impressions",
+                "campaign.clicks",
+                "campaign.spend",
+                "campaign.ctr",
+                "campaign.cpc",
+                "campaign.cpm",
+              ])
+                params.append("fields", field);
+              return `/campaigns/${resources.campaignId}/insights?${params}`;
+            })()
           : `/campaigns/${resources.campaignId}`,
         { method: "GET" },
       )
     ).payload;
+    if (this.provider === "chatgpt_ads") {
+      const rows = (payload.data as Json[] | undefined) ?? [];
+      const metrics: Record<string, number> = {};
+      for (const row of rows)
+        for (const [key, value] of Object.entries(row)) {
+          const leaf = key.split(".").pop()!;
+          if (
+            !["impressions", "clicks", "spend", "ctr", "cpc", "cpm"].includes(
+              leaf,
+            )
+          )
+            continue;
+          const numeric = Number(value);
+          if (Number.isFinite(numeric))
+            metrics[leaf] = (metrics[leaf] ?? 0) + numeric;
+        }
+      return statusMetrics(this.provider, metrics, range);
+    }
     return statusMetrics(this.provider, payload, range);
   }
 }

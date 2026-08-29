@@ -252,6 +252,19 @@ label em { float: right; color: #87928f; font-size: 12px; font-style: normal; fo
 .tiktok-publishing-options p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .inline-check { display: flex !important; align-items: center; gap: 8px; }
 .inline-check input { width: 15px; margin: 0; }
+.launch-readiness-overview { margin-bottom: 22px; padding: 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
+.launch-readiness-overview > header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.launch-readiness-overview h2 { margin: 3px 0 7px; font-size: 24px; letter-spacing: -.025em; }
+.launch-readiness-overview > header p:last-child { max-width: 680px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.launch-readiness-counts { display: flex; gap: 22px; }
+.launch-readiness-counts span { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.launch-readiness-counts b { display: block; margin-bottom: 3px; color: var(--ink); font-size: 18px; }
+.launch-check-grid { margin-top: 22px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.launch-check-grid > article { min-height: 108px; padding: 15px; display: grid; grid-template-columns: 28px 1fr; gap: 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--soft); }
+.launch-check-grid > article > div { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 8px; color: var(--brand); background: var(--card); }
+.launch-check-grid section > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.launch-check-grid h3 { margin: 3px 0 0; font-size: 13px; }
+.launch-check-grid p { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .readiness-editor-grid { display: grid; gap: 18px; }
 .readiness-editor-card { padding: 22px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
 .readiness-editor-card > header, .readiness-editor-card > footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
@@ -550,6 +563,9 @@ label em { float: right; color: #87928f; font-size: 12px; font-style: normal; fo
   .month-day { min-height: 74px; padding: 4px; }
   .month-day > a { padding: 3px; font-size: 0; }
   .month-day > a::before { content: "•"; font-size: 12px; }
+  .launch-readiness-overview > header { align-items: stretch; flex-direction: column; }
+  .launch-readiness-counts { justify-content: space-between; }
+  .launch-check-grid { grid-template-columns: 1fr; }
   .readiness-checks { grid-template-columns: 1fr; }
   .readiness-editor-card > footer { align-items: stretch; flex-direction: column; }
   .mobile-bottom { position: fixed; inset: auto 0 0 0; z-index: 15; height: 68px; padding-bottom: env(safe-area-inset-bottom); display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--line); background: rgba(255,255,255,.96); backdrop-filter: blur(12px); }

@@ -34,6 +34,15 @@ function keyBytes() {
   return bytes;
 }
 
+export function providerCredentialEncryptionReady(): boolean {
+  try {
+    keyBytes();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function key() {
   return crypto.subtle.importKey("raw", keyBytes(), "AES-GCM", false, [
     "encrypt",

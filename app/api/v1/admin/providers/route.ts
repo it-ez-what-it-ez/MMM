@@ -7,6 +7,8 @@ import {
   requireApiUser,
 } from "@/server/v1/auth";
 import { getProviderReadiness } from "@/server/v1/provider-platform";
+import { providerRequiredScopes } from "@/lib/v1/provider-readiness";
+import type { OAuthProviderKey } from "@/lib/v1/domain";
 
 function assertPlatformAdmin(email?: string) {
   const allowed = (process.env.PLATFORM_ADMIN_EMAILS ?? "")
@@ -40,7 +42,11 @@ export async function GET(request: Request) {
         ...item,
         environment,
         applicationId: record?.application_id ?? null,
-        requiredScopes: record?.required_scopes ?? [],
+        requiredScopes: record?.required_scopes?.length
+          ? record.required_scopes
+          : item.provider in providerRequiredScopes
+            ? providerRequiredScopes[item.provider as OAuthProviderKey]
+            : [],
         grantedScopes: record?.granted_scopes ?? [],
         apiVersion: record?.api_version ?? null,
         webhookVerified: record?.webhook_verified ?? false,

@@ -2,6 +2,7 @@ import { createClient, type User } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { getPublicSupabaseConfig } from "@/lib/supabase/config";
 import { getServerSupabase } from "@/lib/supabase/server";
+import { safeOperationalErrorMessage } from "@/lib/v1/errors";
 
 export type WorkspaceRole =
   "owner" | "admin" | "marketer" | "reviewer" | "viewer";
@@ -75,8 +76,7 @@ export function authorizationErrorResponse(error: unknown) {
       { status: error.status },
     );
   }
-  const message =
-    error instanceof Error ? error.message : "Unexpected server error.";
+  const message = safeOperationalErrorMessage(error);
   return Response.json(
     {
       ok: false,

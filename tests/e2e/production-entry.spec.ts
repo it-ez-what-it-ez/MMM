@@ -1,24 +1,27 @@
 import { expect, test } from "@playwright/test";
 
-test("unconfigured local build refuses to fake a workspace", async ({
-  page,
-}) => {
-  test.skip(
-    Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
-    "Configured environments run the authenticated acceptance suite.",
-  );
+test("production entry refuses to fake a workspace", async ({ page }) => {
   await page.goto("/");
-  await expect(
-    page.getByRole("heading", {
-      name: "Connect the real application foundation",
-    }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      "no seeded workspace, demo login, fake provider, or canned AI fallback",
-      { exact: false },
-    ),
-  ).toBeVisible();
+  const setupGate = page.getByRole("heading", {
+    name: "Connect the real application foundation",
+  });
+  const realAuth = page.getByRole("heading", {
+    name: "Create your account or sign in",
+  });
+  await expect(setupGate.or(realAuth)).toBeVisible();
+  if (await setupGate.isVisible()) {
+    await expect(
+      page.getByText(
+        "no seeded workspace, demo login, fake provider, or canned AI fallback",
+        { exact: false },
+      ),
+    ).toBeVisible();
+  } else {
+    await expect(page.getByRole("button", { name: /Google/ })).toBeVisible();
+    await expect(
+      page.getByRole("textbox", { name: "Email address" }),
+    ).toBeVisible();
+  }
   await expect(page.getByText("Northstar Analytics")).toHaveCount(0);
 });
 

@@ -360,7 +360,7 @@ export async function discoverProviderAccounts(
     };
   }
   if (provider === "linkedin_pages") {
-    const version = process.env.LINKEDIN_API_VERSION || "202602";
+    const version = process.env.LINKEDIN_API_VERSION || "202608";
     const profile = await authorizedJson(
       "https://api.linkedin.com/v2/userinfo",
       tokens.accessToken,

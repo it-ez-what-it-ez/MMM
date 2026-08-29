@@ -434,20 +434,55 @@ export class LinkedInOrganicAdapter implements OrganicPublisherAdapter {
   private headers(context: ProviderAccountContext) {
     return {
       Authorization: `Bearer ${context.accessToken}`,
-      "LinkedIn-Version": process.env.LINKEDIN_API_VERSION || "202602",
+      "LinkedIn-Version": process.env.LINKEDIN_API_VERSION || "202608",
       "X-Restli-Protocol-Version": "2.0.0",
       "Content-Type": "application/json",
     };
   }
   async validate(_context: ProviderAccountContext, input: OrganicPublishInput) {
-    return validateBase(input);
+    const result = validateBase(input);
+    if (input.text.length > 3_000)
+      result.errors.push({
+        code: "text_too_long",
+        field: "text",
+        message: "LinkedIn post text cannot exceed 3,000 characters.",
+      });
+    if (input.mediaUrls.length > 20)
+      result.errors.push({
+        code: "too_many_images",
+        field: "media",
+        message: "LinkedIn multi-image posts support up to 20 images.",
+      });
+    result.valid = result.errors.length === 0;
+    return result;
   }
   async publish(context: ProviderAccountContext, input: OrganicPublishInput) {
     const owner = `urn:li:organization:${context.account.externalId}`;
-    const mediaUrns: string[] = [];
-    for (const mediaUrl of input.mediaUrls) {
+    const media = await Promise.all(
+      input.mediaUrls.map(async (mediaUrl) => {
+        const response = await fetch(mediaUrl);
+        if (!response.ok) throw new Error("LinkedIn media could not be read.");
+        return {
+          bytes: await response.arrayBuffer(),
+          contentType: (response.headers.get("content-type") ?? "")
+            .split(";")[0]
+            .trim()
+            .toLowerCase(),
+        };
+      }),
+    );
+    const documentIndexes = media.flatMap((item, index) =>
+      item.contentType === "application/pdf" ? [index] : [],
+    );
+    if (documentIndexes.length && media.length !== 1)
+      throw new Error(
+        "LinkedIn document posts must contain one PDF and cannot mix documents with images.",
+      );
+
+    let content: Record<string, unknown>;
+    if (documentIndexes.length === 1) {
       const init = await request(
-        "https://api.linkedin.com/rest/images?action=initializeUpload",
+        "https://api.linkedin.com/rest/documents?action=initializeUpload",
         {
           method: "POST",
           headers: this.headers(context),
@@ -456,29 +491,75 @@ export class LinkedInOrganicAdapter implements OrganicPublisherAdapter {
         "LinkedIn",
       );
       const value = (init.payload.value as Json | undefined) ?? init.payload;
-      const uploadUrl = String(value.uploadUrl);
-      const image = String(value.image);
-      const bytes = await fetch(mediaUrl).then(async (response) => {
-        if (!response.ok) throw new Error("LinkedIn media could not be read.");
-        return response.arrayBuffer();
-      });
+      const uploadUrl = String(value.uploadUrl ?? "");
+      const document = String(value.document ?? "");
+      if (!uploadUrl || !document)
+        throw new Error("LinkedIn did not initialize the document upload.");
       const uploaded = await fetch(uploadUrl, {
         method: "PUT",
-        headers: { Authorization: `Bearer ${context.accessToken}` },
-        body: bytes,
+        headers: {
+          Authorization: `Bearer ${context.accessToken}`,
+          "Content-Type": "application/pdf",
+        },
+        body: media[0].bytes,
       });
       if (!uploaded.ok)
-        throw new Error(`LinkedIn image upload returned ${uploaded.status}.`);
-      mediaUrns.push(image);
-    }
-    const content = mediaUrns.length
-      ? { media: { title: input.title ?? "Campaign image", id: mediaUrns[0] } }
-      : {
-          article: {
-            source: input.destinationUrl,
-            title: input.title ?? input.text.slice(0, 100),
+        throw new Error(`LinkedIn document upload returned ${uploaded.status}.`);
+      content = {
+        media: { title: input.title ?? "Campaign document", id: document },
+      };
+    } else {
+      const mediaUrns: string[] = [];
+      for (const item of media) {
+        if (!item.contentType.startsWith("image/"))
+          throw new Error(
+            "LinkedIn V1 posts accept images or one PDF document.",
+          );
+        const init = await request(
+          "https://api.linkedin.com/rest/images?action=initializeUpload",
+          {
+            method: "POST",
+            headers: this.headers(context),
+            body: JSON.stringify({ initializeUploadRequest: { owner } }),
           },
-        };
+          "LinkedIn",
+        );
+        const value = (init.payload.value as Json | undefined) ?? init.payload;
+        const uploadUrl = String(value.uploadUrl ?? "");
+        const image = String(value.image ?? "");
+        if (!uploadUrl || !image)
+          throw new Error("LinkedIn did not initialize the image upload.");
+        const uploaded = await fetch(uploadUrl, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${context.accessToken}`,
+            ...(item.contentType
+              ? { "Content-Type": item.contentType }
+              : {}),
+          },
+          body: item.bytes,
+        });
+        if (!uploaded.ok)
+          throw new Error(`LinkedIn image upload returned ${uploaded.status}.`);
+        mediaUrns.push(image);
+      }
+      content =
+        mediaUrns.length === 1
+          ? {
+              media: {
+                title: input.title ?? "Campaign image",
+                id: mediaUrns[0],
+              },
+            }
+          : {
+              multiImage: {
+                images: mediaUrns.map((id, index) => ({
+                  id,
+                  altText: `${input.title ?? "Campaign image"} ${index + 1}`,
+                })),
+              },
+            };
+    }
     const result = await request(
       "https://api.linkedin.com/rest/posts",
       {
